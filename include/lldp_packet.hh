@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <net/ethernet.h>
 #include <vector>
+
 namespace ndisc
 {
     struct LLDPDUTypeLengthValue

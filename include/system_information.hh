@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <net/ethernet.h>
+
 namespace ndisc
 {
     std::vector<std::string> GetEthernetDeviceList();
