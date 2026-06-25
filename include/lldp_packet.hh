@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <net/ethernet.h>
 #include <vector>
+#include <span>
+#include <optional>
 
 namespace ndisc
 {
@@ -13,6 +15,8 @@ namespace ndisc
         std::vector<uint8_t> value;
 
         std::vector<uint8_t> toFrameBuffer() const;
+
+        static std::optional<LLDPDUTypeLengthValue> fromSpan(std::span<uint8_t> &);
     };
 
     struct LLDPDataUnit
@@ -23,6 +27,7 @@ namespace ndisc
         std::vector<LLDPDUTypeLengthValue> optional_tlv;
 
         std::vector<uint8_t> toFrameBuffer() const;
+        static std::optional<LLDPDataUnit> fromSpan(std::span<uint8_t>);
     };
 
     struct LLDPEthernetFrame
@@ -31,6 +36,8 @@ namespace ndisc
         LLDPDataUnit data_unit;
 
         std::vector<uint8_t> toFrameBuffer() const;
+
+        static std::optional<LLDPEthernetFrame> fromSpan(std::span<uint8_t>);
     };
 
     LLDPDUTypeLengthValue createChassisIdTLV();
