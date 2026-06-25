@@ -5,15 +5,17 @@
 #include <optional>
 #include <iostream>
 #include <unistd.h>
+#include <memory>
+#include <array>
 
 namespace ndisc
 {
     class EventHandler
     {
     public:
+        virtual int GetSocket() const = 0;
         virtual void Call() = 0;
-        virtual void Register(int epfd) = 0;
-        virtual void Deregister(int epfd) = 0;
+        virtual uint32_t GetEvents() const = 0;
         EventHandler() = default;
         EventHandler(const EventHandler &) = default;
         EventHandler(EventHandler &&) = default;
@@ -24,7 +26,7 @@ namespace ndisc
 
     class EventManager
     {
-        std::vector<EventHandler> registered_handlers_;
+        std::vector<std::unique_ptr<EventHandler>> registered_handlers_;
 
         int epfd_ = -1;
 
@@ -84,6 +86,27 @@ namespace ndisc
             }
 
             return EventManager(epfd);
+        }
+
+        void Add(EventHandler &handler)
+        {
+            epoll_event event{};
+            event.data.ptr = &handler;
+            event.events = handler.GetEvents();
+
+            epoll_ctl(epfd_, EPOLL_CTL_ADD, handler.GetSocket(), &event);
+        }
+
+        static constexpr int MAX_CONCURRENT_EVENTS = 10;
+        static constexpr int EPOLL_TIMEOUT = 100;
+        void Wait()
+        {
+            std::array<epoll_event, MAX_CONCURRENT_EVENTS> events{};
+            int fds_ready = epoll_wait(epfd_, events.data(), MAX_CONCURRENT_EVENTS, EPOLL_TIMEOUT);
+            for (int i = 0; i < fds_ready; i++)
+            {
+                reinterpret_cast<EventHandler *>(events.at(i).data.ptr)->Call();
+            }
         }
     };
 } // namespace ndisc

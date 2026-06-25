@@ -15,5 +15,5 @@ out/ndisc: $(object_files)
 out:
 	mkdir -p out
 
-$(object_files): out/%.o : src/%.cc
+$(object_files): out/%.o : src/%.cc include/*.hh
 	$(GCC) -c $< -o $@
