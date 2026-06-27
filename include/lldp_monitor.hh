@@ -15,6 +15,8 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <iomanip>
+#include <chrono>
+#include <map>
 
 #include "event_handlers.hh"
 #include "lldp_packet.hh"
@@ -44,6 +46,7 @@ namespace ndisc
             int socket_fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_LLDP));
             if (socket_fd < 0)
             {
+                std::cerr << "Monitor errno: " << errno << "\n";
                 return nullptr;
             }
             return std::make_unique<EthernetLldpMonitor>(EthernetLldpMonitor(socket_fd, std::move(callback)));
@@ -97,7 +100,20 @@ namespace ndisc
         }
     };
 
-    void lldpFrameParser(const sockaddr_ll &address, std::span<const uint8_t> frame)
+    struct NeighbourEntry
+    {
+        std::vector<uint8_t> chassis_id;
+        std::vector<uint8_t> port_id;
+        uint16_t time_to_live;
+        std::optional<std::array<uint8_t, 4>> ip_address;
+    };
+
+    struct NeighbourList
+    {
+        std::map<std::vector<uint8_t>, std::map<std::vector<uint8_t>, NeighbourEntry>> chassis_map;
+    };
+
+    void lldpFrameParser(NeighbourList &neighbour_list, const sockaddr_ll &address, std::span<const uint8_t> frame)
     {
         if (address.sll_family != AF_PACKET)
         {
@@ -141,6 +157,24 @@ namespace ndisc
             std::cerr << "Failed to parse a data_unit\n";
             return;
         }
+        std::optional<std::array<uint8_t, 4>> ip_address = std::nullopt;
+        for (const LLDPDUTypeLengthValue &tlv : data_unit->optional_tlv)
+        {
+            if (tlv.type == 8 && tlv.value.size() == 4)
+            {
+                ip_address = std::array<uint8_t, 4>();
+                std::copy(tlv.value.begin(), tlv.value.end(), ip_address->begin());
+            }
+        }
+        std::array<uint8_t, 2> time_to_live_data{data_unit->time_to_live.value[0], data_unit->time_to_live.value[1]};
+
+        NeighbourEntry entry{
+            .chassis_id = data_unit->chassis_id.value,
+            .port_id = data_unit->port_id.value,
+            .time_to_live = ntohs(std::bit_cast<uint16_t>(time_to_live_data)),
+            .ip_address = ip_address,
+        };
+        neighbour_list.chassis_map[entry.chassis_id][entry.port_id] = std::move(entry);
     }
 
     // class LldpMonitor

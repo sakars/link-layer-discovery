@@ -10,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <queue>
+#include <sys/timerfd.h>
 
 using namespace std::chrono_literals;
 
@@ -391,6 +392,53 @@ void lldpStateUpdater(LldpRepository &lldp, DeviceRepository &repository)
     }
 }
 
+class ClockHandler final : public ndisc::EventHandler
+{
+    int socket_fd_;
+
+    ClockHandler(int socket_fd) : socket_fd_(socket_fd) {}
+
+public:
+    void Call() override
+    {
+        std::cout << "Timer maybe triggered\n";
+        uint64_t times_triggered = 0;
+        ssize_t bytes_received = read(socket_fd_, &times_triggered, sizeof(times_triggered));
+        if (bytes_received < 0 || times_triggered == 0)
+        {
+            std::cout << "Timer not triggered\n";
+            return;
+        }
+        std::cout << "Timer triggered " << times_triggered << " times.\n";
+    }
+
+    uint32_t GetEvents() const override
+    {
+        return EPOLLIN;
+    }
+
+    int GetSocket() const override
+    {
+        return socket_fd_;
+    }
+
+    static std::unique_ptr<ClockHandler> Create()
+    {
+        int socket_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+        if (socket_fd < 0)
+        {
+            return nullptr;
+        }
+        itimerspec timer_spec;
+        timer_spec.it_value.tv_nsec = 0;
+        timer_spec.it_value.tv_sec = 1;
+        timer_spec.it_interval.tv_nsec = 0;
+        timer_spec.it_interval.tv_sec = 1;
+        timerfd_settime(socket_fd, 0, &timer_spec, nullptr);
+        return std::make_unique<ClockHandler>(ClockHandler(socket_fd));
+    }
+};
+
 int main()
 {
     std::optional<ndisc::EventManager> manager_create_result = ndisc::EventManager::Create();
@@ -418,6 +466,22 @@ int main()
     }
     manager.Add(*repository.device_reader);
     manager.Add(*repository.ip_reader);
+
+    ndisc::NeighbourList neighbour_list;
+    std::unique_ptr<ndisc::EthernetLldpMonitor> monitor = ndisc::EthernetLldpMonitor::Create(std::bind_front(ndisc::lldpFrameParser, std::ref(neighbour_list)));
+    if (monitor == nullptr)
+    {
+        std::cerr << "Monitor is null\n";
+        return -1;
+    }
+    manager.Add(*monitor);
+    std::unique_ptr<ClockHandler> clock = ClockHandler::Create();
+    if (clock == nullptr)
+    {
+        std::cerr << "Clock is nullptr\n";
+        return -1;
+    }
+    manager.Add(*clock);
 
     LldpRepository lldp;
     std::chrono::time_point<std::chrono::steady_clock> last_dot_printed = std::chrono::steady_clock::now();
