@@ -12,10 +12,17 @@
 #include <memory>
 #include <functional>
 #include <span>
+#include <net/if.h>
+#include <net/if_arp.h>
+#include <iomanip>
+
 #include "event_handlers.hh"
+#include "lldp_packet.hh"
 
 namespace ndisc
 {
+    constexpr uint16_t MAX_FRAME_BUFFER_SIZE = 1600;
+
     class EthernetLldpMonitor final : public EventHandler
     {
     public:
@@ -32,7 +39,7 @@ namespace ndisc
         }
 
     public:
-        static std::unique_ptr<EthernetLldpMonitor> Create(int device_idx, Callback callback)
+        static std::unique_ptr<EthernetLldpMonitor> Create(Callback callback)
         {
             int socket_fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_LLDP));
             if (socket_fd < 0)
@@ -64,9 +71,9 @@ namespace ndisc
 
             ssize_t peek_packet_length = recvmsg(socket_fd_, &message_header, MSG_PEEK | MSG_TRUNC);
 
-            if (peek_packet_length > message_buffer_.size())
+            if (peek_packet_length > static_cast<ssize_t>(message_buffer_.size()))
             {
-                message_buffer_.resize(peek_packet_length);
+                message_buffer_.resize(peek_packet_length > MAX_FRAME_BUFFER_SIZE ? MAX_FRAME_BUFFER_SIZE : peek_packet_length);
             }
 
             message_iovec.iov_base = message_buffer_.data();
@@ -74,7 +81,14 @@ namespace ndisc
 
             ssize_t received_length = recvmsg(socket_fd_, &message_header, 0);
 
-            callback_(link_layer_address, std::span<const uint8_t>(message_buffer_.begin(), received_length));
+            if (received_length == peek_packet_length)
+            {
+                callback_(link_layer_address, std::span<const uint8_t>(message_buffer_.begin(), received_length));
+            }
+            else
+            {
+                std::cerr << "Failed to read LLDP frame\n";
+            }
         }
 
         uint32_t GetEvents() const override
@@ -82,6 +96,53 @@ namespace ndisc
             return EPOLLIN;
         }
     };
+
+    void lldpFrameParser(const sockaddr_ll &address, std::span<const uint8_t> frame)
+    {
+        if (address.sll_family != AF_PACKET)
+        {
+            std::cerr << "Received LLDP frame is not of AF_PACKET family\n";
+            return;
+        }
+
+        if (ntohs(address.sll_protocol) != ETH_P_LLDP)
+        {
+            std::cerr << "Received a frame that is not LLDP\n";
+            return;
+        }
+
+        if (address.sll_hatype != ARPHRD_ETHER)
+        {
+            std::cerr << "LLDP packet does not originate from ethernet\n";
+            return;
+        }
+
+        if (address.sll_halen != 8)
+        {
+            std::cerr << "LLDP packet address wrong size" << address.sll_halen << "\n";
+            return;
+        }
+
+        std::ios_base::fmtflags f(std::cout.flags());
+        std::cout << std::hex << std::setw(2) << std::setfill('0');
+        std::cout << address.sll_addr[0];
+        for (const unsigned char &data : std::span<const unsigned char>(address.sll_addr).subspan(1))
+        {
+            std::cout << ":" << data;
+        }
+        std::cout.flags(f);
+
+        std::array<char, IF_NAMESIZE> interface_name{};
+        if_indextoname(address.sll_ifindex, interface_name.data());
+        std::cout << "LLDP packet incoming from " << address.sll_ifindex << " interface: " << interface_name.data() << "\n";
+        std::optional<LLDPDataUnit> data_unit = LLDPDataUnit::fromSpan(frame);
+        if (!data_unit.has_value())
+        {
+            std::cerr << "Failed to parse a data_unit\n";
+            return;
+        }
+    }
+
     // class LldpMonitor
     // {
     //     int socket_fd_ = -1;
