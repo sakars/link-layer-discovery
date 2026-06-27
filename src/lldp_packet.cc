@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <array>
+#include <span>
+#include <bit>
 
 namespace ndisc
 {
@@ -20,7 +22,7 @@ namespace ndisc
         return buffer;
     }
 
-    std::optional<LLDPDUTypeLengthValue> LLDPDUTypeLengthValue::fromSpan(std::span<uint8_t> &tlv_bytes)
+    std::optional<LLDPDUTypeLengthValue> LLDPDUTypeLengthValue::fromSpan(std::span<const uint8_t> &tlv_bytes)
     {
         if (tlv_bytes.size() < 2)
         {
@@ -29,7 +31,7 @@ namespace ndisc
         const size_t TYPE_BIT_OFFSET = 9;
         const uint16_t type_mask = (1 << TYPE_BIT_OFFSET) - 1;
         const uint16_t tlv_header = ntohs(*tlv_bytes.data());
-        const uint16_t length = tlv_header & type_mask;
+        const size_t length = tlv_header & type_mask;
         const uint8_t type = tlv_header >> TYPE_BIT_OFFSET;
         if (length + 2 > tlv_bytes.size())
         {
@@ -64,7 +66,7 @@ namespace ndisc
         return buffer;
     }
 
-    std::optional<LLDPDataUnit> LLDPDataUnit::fromSpan(std::span<uint8_t> data_unit_bytes)
+    std::optional<LLDPDataUnit> LLDPDataUnit::fromSpan(std::span<const uint8_t> data_unit_bytes)
     {
         // TODO: literals need ID const vars
         const std::optional<LLDPDUTypeLengthValue> chassis_id_tlv = LLDPDUTypeLengthValue::fromSpan(data_unit_bytes);
@@ -116,15 +118,15 @@ namespace ndisc
         std::vector<uint8_t> buffer{};
         buffer.insert(std::end(buffer), std::begin(header.ether_dhost), std::end(header.ether_dhost));
         buffer.insert(std::end(buffer), std::begin(header.ether_shost), std::end(header.ether_shost));
-        const uint16_t ether_type = htons(header.ether_type);
-        const std::span<const std::byte> ether_type_bytes = std::as_bytes(std::span<const uint16_t>(&ether_type, 1));
-        buffer.insert(std::end(buffer), ether_type_bytes.begin(), ether_type_bytes.end());
+        const auto ether_type = std::bit_cast<std::array<uint8_t, 2>>(htons(header.ether_type));
+        buffer.insert(std::end(buffer), std::begin(ether_type), std::end(ether_type));
+
         const std::vector<uint8_t> data_unit_buffer = data_unit.toFrameBuffer();
         buffer.insert(std::end(buffer), std::begin(data_unit_buffer), std::end(data_unit_buffer));
         return buffer;
     }
 
-    std::optional<LLDPEthernetFrame> LLDPEthernetFrame::fromSpan(std::span<uint8_t> frame)
+    std::optional<LLDPEthernetFrame> LLDPEthernetFrame::fromSpan(std::span<const uint8_t> frame)
     {
         LLDPEthernetFrame generated_frame{};
         if (frame.size() < sizeof(generated_frame.header))

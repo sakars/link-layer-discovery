@@ -19,11 +19,11 @@ void printPacketType(ndisc::NetlinkPacketView packet)
     std::cout << packet.index() << "\n";
 }
 
-auto packetConverter(std::function<void(ndisc::NetlinkPacketView)> callback)
+auto packetConverter(const std::function<void(ndisc::NetlinkPacketView)> CALLBACK)
 {
-    return [callback](std::span<uint8_t> packet) -> void
+    return [CALLBACK](std::span<uint8_t> packet) -> void
     {
-        callback(ndisc::packetViewParser(packet));
+        CALLBACK(ndisc::packetViewParser(packet));
     };
 }
 

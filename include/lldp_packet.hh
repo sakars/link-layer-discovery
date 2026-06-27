@@ -16,7 +16,7 @@ namespace ndisc
 
         std::vector<uint8_t> toFrameBuffer() const;
 
-        static std::optional<LLDPDUTypeLengthValue> fromSpan(std::span<uint8_t> &);
+        static std::optional<LLDPDUTypeLengthValue> fromSpan(std::span<const uint8_t> &);
     };
 
     struct LLDPDataUnit
@@ -27,7 +27,7 @@ namespace ndisc
         std::vector<LLDPDUTypeLengthValue> optional_tlv;
 
         std::vector<uint8_t> toFrameBuffer() const;
-        static std::optional<LLDPDataUnit> fromSpan(std::span<uint8_t>);
+        static std::optional<LLDPDataUnit> fromSpan(std::span<const uint8_t>);
     };
 
     struct LLDPEthernetFrame
@@ -37,7 +37,7 @@ namespace ndisc
 
         std::vector<uint8_t> toFrameBuffer() const;
 
-        static std::optional<LLDPEthernetFrame> fromSpan(std::span<uint8_t>);
+        static std::optional<LLDPEthernetFrame> fromSpan(std::span<const uint8_t>);
     };
 
     LLDPDUTypeLengthValue createChassisIdTLV();
