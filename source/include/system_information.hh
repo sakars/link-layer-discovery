@@ -3,12 +3,11 @@
 #include <vector>
 #include <string>
 #include <net/ethernet.h>
+#include <fstream>
 
 namespace ndisc
 {
     std::vector<std::string> GetEthernetDeviceList();
-
-    std::string GetMachineId();
 
     ether_addr GetDeviceMacAddress(const std::string &device);
 

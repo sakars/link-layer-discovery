@@ -125,4 +125,16 @@ namespace ndisc
         };
     }
 
+    std::string GetMachineId()
+    {
+        static std::string machine_id;
+        if (machine_id.empty())
+        {
+            std::ifstream machine_id_file_stream("/etc/machine-id");
+            machine_id_file_stream >> machine_id;
+            machine_id_file_stream.close();
+        }
+        return machine_id;
+    }
+
 } // namespace ndisc

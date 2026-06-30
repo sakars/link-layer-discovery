@@ -40,7 +40,7 @@ namespace ndisc
         static std::optional<LLDPEthernetFrame> fromSpan(std::span<const uint8_t>);
     };
 
-    LLDPDUTypeLengthValue createChassisIdTLV();
+    // LLDPDUTypeLengthValue createChassisIdTLV();
 }
 
 #endif // NDISC_LLDP_PACKET_HH

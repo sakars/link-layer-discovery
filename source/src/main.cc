@@ -191,7 +191,7 @@ void updateDeviceList(DeviceRepository &repository, ndisc::NetlinkPacketView pac
             int index = link_message->content.interface_info->ifi_index;
             std::cout << "New link with index: " << index << "\n";
             ndisc::DeviceData &device = repository.devices[index];
-
+            device.if_index = index;
             for (const ndisc::TLVView attribute : link_message->content.attributes)
             {
                 if (attribute.attribute_header->rta_type == IFLA_IFNAME)
@@ -278,6 +278,7 @@ void updateAddressList(DeviceRepository &repository, ndisc::NetlinkPacketView pa
                 return;
             }
             unsigned int index = link_message->content.address_info->ifa_index;
+            repository.devices[index].if_index = index;
             for (const ndisc::TLVView attribute : link_message->content.attributes)
             {
                 if (attribute.attribute_header->rta_type == IFA_ADDRESS)
@@ -328,22 +329,56 @@ struct LldpRepository
 {
     std::map<unsigned int, ndisc::DeviceData> current_state;
 
+    void CheckSocketForTxReady(unsigned int idx)
+    {
+        if (current_state.contains(idx))
+        {
+            ndisc::DeviceData &device_data = current_state[idx];
+            if (!device_data.lldp_sender.has_value() && device_data.interface_name.has_value())
+            {
+                // device_data.lldp_sender = ndisc::LldpSender::Create();
+                std::optional<ndisc::LldpSender> sender = ndisc::LldpSender::Create();
+                if (sender.has_value())
+                {
+                    device_data.lldp_sender = std::move(*sender);
+                }
+            }
+        }
+    }
+
     void MarkChangedLldpStateMachine(unsigned int idx)
     {
         std::cout << "Change for idx " << idx << "\n";
+        CheckSocketForTxReady(idx);
+        if (current_state.contains(idx))
+        {
+            current_state[idx].LocalChangeDetected();
+        }
     }
 
     void DeleteLldpStateMachine(unsigned int idx)
     {
         std::cout << "Delete for idx " << idx << "\n";
+        CheckSocketForTxReady(idx);
+        if (current_state.contains(idx))
+        {
+            current_state[idx].EndTransmission();
+        }
+        current_state.erase(idx);
     }
 
     void CreateLldpStateMachine(unsigned int idx)
     {
         std::cout << "Create for idx" << idx << "\n";
+        CheckSocketForTxReady(idx);
+        if (current_state.contains(idx))
+        {
+            ndisc::DeviceData &device_data = current_state[idx];
+            device_data.NewNeighbour();
+        }
     }
 
-    void UpdateState(std::map<unsigned int, ndisc::DeviceData> new_state)
+    void UpdateState(std::map<unsigned int, ndisc::DeviceData> &new_state)
     {
         for (auto &[index, new_device_state] : new_state)
         {
@@ -368,16 +403,29 @@ struct LldpRepository
             }
             else
             {
-                current_state[index] = new_device_state;
+                current_state[index] = std::move(new_device_state);
                 CreateLldpStateMachine(index);
             }
         }
+        std::vector<unsigned int> deletables{};
         for (auto &[index, current_device_state] : current_state)
         {
             if (!new_state.contains(index))
             {
-                DeleteLldpStateMachine(index);
+                deletables.push_back(index);
             }
+        }
+        for (const unsigned int idx : deletables)
+        {
+            DeleteLldpStateMachine(idx);
+        }
+    }
+
+    void Tick()
+    {
+        for (auto &[idx, device] : current_state)
+        {
+            device.Tick();
         }
     }
 };
@@ -395,21 +443,50 @@ void lldpStateUpdater(LldpRepository &lldp, DeviceRepository &repository)
 class ClockHandler final : public ndisc::EventHandler
 {
     int socket_fd_;
+    ndisc::NeighbourList neighbour_list_;
+    DeviceRepository *device_repository_;
+    LldpRepository *lldp_repository_;
 
-    ClockHandler(int socket_fd) : socket_fd_(socket_fd) {}
+    ClockHandler(int socket_fd, ndisc::NeighbourList nl, DeviceRepository *dr, LldpRepository *lldp) : socket_fd_(socket_fd), neighbour_list_(nl), device_repository_(dr), lldp_repository_(lldp) {}
 
 public:
     void Call() override
     {
-        std::cout << "Timer maybe triggered\n";
         uint64_t times_triggered = 0;
         ssize_t bytes_received = read(socket_fd_, &times_triggered, sizeof(times_triggered));
         if (bytes_received < 0 || times_triggered == 0)
         {
-            std::cout << "Timer not triggered\n";
             return;
         }
-        std::cout << "Timer triggered " << times_triggered << " times.\n";
+        std::vector<std::tuple<std::vector<uint8_t>, std::vector<uint8_t>>> timed_out_entries{};
+        for (auto &[chassis, port_map] : neighbour_list_.chassis_map)
+        {
+            for (auto &[port, entry] : port_map)
+            {
+                if (entry.time_to_live <= times_triggered)
+                {
+                    entry.time_to_live = 0;
+                    timed_out_entries.emplace_back(chassis, port);
+                }
+                else
+                {
+                    entry.time_to_live -= times_triggered;
+                }
+            }
+        }
+        for (const auto &[chassis, port] : timed_out_entries)
+        {
+            neighbour_list_.chassis_map[chassis].erase(port);
+            if (neighbour_list_.chassis_map[chassis].empty())
+            {
+                neighbour_list_.chassis_map.erase(chassis);
+            }
+        }
+        tryDeviceUpdateDispatch(*device_repository_);
+        tryIpUpdateDispatch(*device_repository_);
+        lldpStateUpdater(*lldp_repository_, *device_repository_);
+        lldp_repository_->Tick();
+        std::cout << "Found " << neighbour_list_.chassis_map.size() << " chassis.\n";
     }
 
     uint32_t GetEvents() const override
@@ -422,7 +499,7 @@ public:
         return socket_fd_;
     }
 
-    static std::unique_ptr<ClockHandler> Create()
+    static std::unique_ptr<ClockHandler> Create(ndisc::NeighbourList &neighbour_list, DeviceRepository &device_repository, LldpRepository &lldp_repository)
     {
         int socket_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
         if (socket_fd < 0)
@@ -435,12 +512,34 @@ public:
         timer_spec.it_interval.tv_nsec = 0;
         timer_spec.it_interval.tv_sec = 1;
         timerfd_settime(socket_fd, 0, &timer_spec, nullptr);
-        return std::make_unique<ClockHandler>(ClockHandler(socket_fd));
+        return std::make_unique<ClockHandler>(ClockHandler(socket_fd, neighbour_list, &device_repository, &lldp_repository));
     }
 };
 
+#include <stdio.h>
+#include <execinfo.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void handler(int sig)
+{
+    void *array[10];
+    size_t size;
+
+    // get void*'s for all entries on the stack
+    size = backtrace(array, 10);
+
+    // print out all the frames to stderr
+    fprintf(stderr, "Error: signal %d:\n", sig);
+    backtrace_symbols_fd(array, size, STDERR_FILENO);
+    exit(1);
+}
+
 int main()
 {
+
+    signal(SIGSEGV, handler); // install our handler
     std::optional<ndisc::EventManager> manager_create_result = ndisc::EventManager::Create();
 
     if (!manager_create_result.has_value())
@@ -475,7 +574,8 @@ int main()
         return -1;
     }
     manager.Add(*monitor);
-    std::unique_ptr<ClockHandler> clock = ClockHandler::Create();
+    LldpRepository lldp;
+    std::unique_ptr<ClockHandler> clock = ClockHandler::Create(neighbour_list, repository, lldp);
     if (clock == nullptr)
     {
         std::cerr << "Clock is nullptr\n";
@@ -483,16 +583,10 @@ int main()
     }
     manager.Add(*clock);
 
-    LldpRepository lldp;
     std::chrono::time_point<std::chrono::steady_clock> last_dot_printed = std::chrono::steady_clock::now();
     while (true)
     {
         manager.Wait();
-        for (const auto manager_function : repository_state_managers)
-        {
-            manager_function(repository);
-        }
-        lldpStateUpdater(lldp, repository);
         while (std::chrono::steady_clock::now() - last_dot_printed > 10s)
         {
             std::cout << ".\n";

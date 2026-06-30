@@ -3,6 +3,7 @@
 
 #include "scheduler.hh"
 #include "event_handlers.hh"
+#include "lldp_packet.hh"
 
 #include <vector>
 #include <cstdint>
@@ -16,6 +17,11 @@
 #include <string>
 #include <memory>
 #include <type_traits>
+#include <fstream>
+#include <arpa/inet.h>
+#include <net/ethernet.h>
+#include <linux/if_packet.h>
+#include <iostream>
 
 namespace ndisc
 {
@@ -33,6 +39,7 @@ namespace ndisc
         NetlinkSocket(int socket_fd, std::function<void(std::span<uint8_t>)> callback) : socket_fd_(socket_fd), callback_(std::move(callback))
         {
         }
+
         static inline void loadBatch(int socket_fd, std::vector<uint8_t> &data_buffer)
         {
             if (socket_fd < 0)
@@ -163,17 +170,6 @@ namespace ndisc
         {
             return sequence_number_;
         }
-        // std::optional<std::span<uint8_t>> Next()
-        // {
-        //     std::optional<std::span<uint8_t>> packet_from_remaining = tryLoadFromSpan(remaining_data_);
-        //     if (packet_from_remaining.has_value())
-        //     {
-        //         return packet_from_remaining;
-        //     }
-        //     loadBatch(socket_fd_, data_buffer_);
-        //     remaining_data_ = std::span<uint8_t>(data_buffer_.begin(), data_buffer_.end());
-        //     return tryLoadFromSpan(remaining_data_);
-        // }
 
         bool IsReadable() const
         {
@@ -320,76 +316,188 @@ namespace ndisc
     using NetlinkPacketView =
         std::variant<MessageView, LinkView, AddrView, ErrorView, DoneView>;
 
-    // class NetlinkPacketReader
-    // {
-    //     std::unique_ptr<NetlinkSocket> socket_;
-    //     int socket_fd_;
-
-    //     std::function<void(NetlinkPacketView)> callback_;
-
-    // public:
-    //     NetlinkPacketReader::NetlinkPacketReader(int socket_fd, std::function<void(NetlinkPacketView)> callback) : socket_fd_(socket_fd), socket_(nullptr), callback_(std::move(callback))
-    //     {
-    //         std::unique_ptr<NetlinkSocket> socket = NetlinkSocket::Create();
-    //     }
-
-    //     static void SocketHandler(std::span<)
-    // };
-
     NetlinkPacketView packetViewParser(std::span<uint8_t> packet);
+
+    const uint16_t MAX_TRANSMIT_CREDITS = 5;
+    const uint16_t FAST_TRANSMIT_AMOUNT = 4;
+    const uint16_t TARGET_TTL = 30;
+    const uint16_t PACKET_HOLD_AMOUNT = 5;
+    const uint16_t MESSAGE_TRANSMIT_INTERVAL = TARGET_TTL / PACKET_HOLD_AMOUNT;
+    const uint16_t MESSAGE_FAST_INTERVAL = 1;
+
+    std::string GetMachineId();
+
+    class LldpSender
+    {
+        int socket_fd_;
+
+        LldpSender(int socket) : socket_fd_(socket) {}
+
+    public:
+        ~LldpSender()
+        {
+            if (socket_fd_ >= 0)
+            {
+                close(socket_fd_);
+            }
+        }
+        LldpSender(const LldpSender &) = delete;
+        LldpSender(LldpSender &&other) : socket_fd_(other.socket_fd_)
+        {
+            other.socket_fd_ = -1;
+        }
+        LldpSender &operator=(const LldpSender &) = delete;
+        LldpSender &operator=(LldpSender &&other)
+        {
+            if (socket_fd_ >= 0)
+            {
+                close(socket_fd_);
+            }
+            socket_fd_ = other.socket_fd_;
+            other.socket_fd_ = -1;
+            return *this;
+        }
+
+        static std::optional<LldpSender> Create()
+        {
+            int socket_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+            if (socket_fd < 0)
+            {
+                return std::nullopt;
+            }
+            return LldpSender(socket_fd);
+        }
+
+        void SendLldp(int interface, const std::array<uint8_t, 6> &mac, const std::optional<std::array<uint8_t, 4>> &ip_address, uint16_t ttl)
+        {
+            std::cout << "Sending LLDP through interface\n";
+            static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
+            static const uint8_t chassis_id_tlv_type = 1;
+            static const uint8_t port_id_tlv_type = 2;
+            static const uint8_t time_to_live_tlv_type = 3;
+            static const uint8_t management_tlv_type = 8;
+            LLDPEthernetFrame frame{};
+            std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
+            std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
+            frame.header.ether_type = htons(ETH_P_LLDP);
+            frame.data_unit.chassis_id.type = chassis_id_tlv_type;
+            std::string chassis = GetMachineId();
+            frame.data_unit.chassis_id.value.resize(chassis.size());
+            std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
+            frame.data_unit.port_id.type = port_id_tlv_type;
+            frame.data_unit.port_id.value.resize(6);
+            std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin());
+            frame.data_unit.time_to_live.type = time_to_live_tlv_type;
+            frame.data_unit.time_to_live.value.resize(2);
+            const std::array<uint8_t, 2> network_ttl = std::bit_cast<std::array<uint8_t, 2>>(htons(ttl));
+            std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
+            if (ip_address.has_value())
+            {
+                LLDPDUTypeLengthValue management_tlv;
+                management_tlv.type = management_tlv_type;
+                management_tlv.value.resize(4);
+                std::copy(ip_address->begin(), ip_address->end(), management_tlv.value.begin());
+            }
+            const std::vector<uint8_t> frame_buffer = frame.toFrameBuffer();
+            sockaddr_ll address;
+            address.sll_family = AF_PACKET;
+            std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));
+            address.sll_halen = multicast_address.size();
+            address.sll_ifindex = interface;
+            address.sll_protocol = htons(ETH_P_LLDP);
+            sendto(socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+            // if (bytes_sent != sizeof(frame_buffer))
+            // {
+            //     std::cout << "Failed to send lldp\n";
+            // }
+        }
+    };
 
     struct DeviceData
     {
         std::optional<std::array<uint8_t, 6>> mac_address = std::nullopt;
         std::optional<std::array<uint8_t, 4>> ip_address = std::nullopt;
         std::optional<std::string> interface_name = std::nullopt;
+        std::optional<LldpSender> lldp_sender = std::nullopt;
+        int if_index;
+        uint16_t transmit_timer = 0;
+        uint16_t transmit_credits = 0;
+        uint16_t fast_forward_counter = 0;
+        bool trigger_ready = false;
+
+        void EndTransmission()
+        {
+            if (lldp_sender.has_value() && mac_address.has_value())
+            {
+                lldp_sender->SendLldp(if_index, *mac_address, ip_address, 0);
+            }
+        }
+
+        void TryTransmit()
+        {
+            if (trigger_ready && transmit_credits > 0 && mac_address.has_value())
+            {
+                trigger_ready = false;
+                transmit_credits--;
+                if (lldp_sender.has_value())
+                {
+                    lldp_sender->SendLldp(if_index, *mac_address, ip_address, TARGET_TTL);
+                }
+            }
+        }
+
+        void TriggerTransmission()
+        {
+            if (fast_forward_counter > 0)
+            {
+                transmit_timer = MESSAGE_FAST_INTERVAL;
+            }
+            else
+            {
+                transmit_timer = MESSAGE_TRANSMIT_INTERVAL;
+            }
+            trigger_ready = true;
+            TryTransmit();
+        }
+        void TimerExpired()
+        {
+            if (fast_forward_counter > 0)
+            {
+                fast_forward_counter--;
+            }
+            TriggerTransmission();
+        }
+        void NewNeighbour()
+        {
+            if (fast_forward_counter == 0)
+            {
+                fast_forward_counter = FAST_TRANSMIT_AMOUNT;
+            }
+            TimerExpired();
+        }
+
+        void LocalChangeDetected()
+        {
+            TriggerTransmission();
+        }
+
+        void Tick()
+        {
+            if (transmit_credits < MAX_TRANSMIT_CREDITS)
+            {
+                transmit_credits += 1;
+            }
+            if (transmit_timer > 0)
+            {
+                transmit_timer--;
+            }
+            if (transmit_timer == 0)
+            {
+                TimerExpired();
+            }
+            TryTransmit();
+        }
     };
-
-    // void LoadDeviceDump(std::map<unsigned int, DeviceData> &device_registry, NetlinkPacketReader &reader)
-    // {
-    // }
-
-    // class NetlinkDeviceStateMonitor
-    // {
-    //     std::unique_ptr<NetlinkPacketReader> device_change_monitor_;
-    //     std::unique_ptr<NetlinkPacketReader> device_state_socket_;
-    //     std::unique_ptr<NetlinkPacketReader> network_state_socket_;
-
-    // public:
-    //     NetlinkDeviceStateMonitor() : device_change_monitor_(NetlinkPacketReader::Create(RTMGRP_LINK | RTMGRP_IPV4_IFADDR)),
-    //                                   device_state_socket_(NetlinkPacketReader::Create(0)),
-    //                                   network_state_socket_(NetlinkPacketReader::Create(0))
-    //     {
-    //     }
-    // };
-
-    // class NetlinkDeviceRepository
-    // {
-    //     std::map<unsigned int, DeviceData> device_registry_;
-    //     int socket_fd_;
-    //     NetlinkPacketReader reader_;
-    //     unsigned int source_pid_;
-    //     unsigned int sequence_number_;
-
-    // public:
-    //     NetlinkDeviceRepository();
-
-    //     enum class DispatchResult : uint8_t
-    //     {
-    //         OK = 0,
-    //         INVALID_FD,
-    //         SEND_UNSUCCESSFUL
-    //     };
-
-    //     DispatchResult DispatchDeviceDumpPackets();
-    //     DispatchResult DispatchAddressDumpPackets();
-
-    //     void ParseDeviceDump(unsigned int sequence_number, Scheduler &scheduler);
-
-    //     // void UpdateRepositoryState();
-    // };
-
-    // void ReloadDeviceDumpTask(NetlinkDeviceRepository &repository, Scheduler &scheduler);
 
 } // namespace ndisc
 
