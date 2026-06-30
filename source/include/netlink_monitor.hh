@@ -87,7 +87,6 @@ namespace ndisc
                 data_buffer.clear();
                 return;
             }
-            std::cout << "Loaded " << data_length << " bytes.\n";
             data_buffer.resize(data_length);
         }
 
@@ -145,23 +144,19 @@ namespace ndisc
 
         void Call() override
         {
-            std::cout << "NetlinkSocket Call fd: " << socket_fd_ << "\n";
             // empty current span
             for (std::optional<std::span<uint8_t>> packet_from_buffer = tryLoadFromSpan(remaining_data_);
                  packet_from_buffer.has_value();
                  packet_from_buffer = tryLoadFromSpan(remaining_data_))
             {
-                std::cout << "NetlinkSocket Callback\n";
                 callback_(packet_from_buffer.value());
             }
-            std::cout << "Loading batch...";
             loadBatch(socket_fd_, data_buffer_);
             remaining_data_ = std::span<uint8_t>(data_buffer_.begin(), data_buffer_.end());
             for (std::optional<std::span<uint8_t>> packet_from_buffer = tryLoadFromSpan(remaining_data_);
                  packet_from_buffer.has_value();
                  packet_from_buffer = tryLoadFromSpan(remaining_data_))
             {
-                std::cout << "NetlinkSocket Callback\n";
                 callback_(packet_from_buffer.value());
             }
         }
@@ -370,7 +365,6 @@ namespace ndisc
 
         void SendLldp(int interface, const std::array<uint8_t, 6> &mac, const std::optional<std::array<uint8_t, 4>> &ip_address, uint16_t ttl)
         {
-            std::cout << "Sending LLDP through interface\n";
             static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
             static const uint8_t chassis_id_tlv_type = 1;
             static const uint8_t port_id_tlv_type = 2;
@@ -382,11 +376,13 @@ namespace ndisc
             frame.header.ether_type = htons(ETH_P_LLDP);
             frame.data_unit.chassis_id.type = chassis_id_tlv_type;
             std::string chassis = GetMachineId();
+            chassis = '\x07' + chassis;
             frame.data_unit.chassis_id.value.resize(chassis.size());
             std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
             frame.data_unit.port_id.type = port_id_tlv_type;
-            frame.data_unit.port_id.value.resize(6);
-            std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin());
+            frame.data_unit.port_id.value.resize(7);
+            frame.data_unit.port_id.value[0] = 0x03;
+            std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
             frame.data_unit.time_to_live.type = time_to_live_tlv_type;
             frame.data_unit.time_to_live.value.resize(2);
             const std::array<uint8_t, 2> network_ttl = std::bit_cast<std::array<uint8_t, 2>>(htons(ttl));
@@ -405,11 +401,12 @@ namespace ndisc
             address.sll_halen = multicast_address.size();
             address.sll_ifindex = interface;
             address.sll_protocol = htons(ETH_P_LLDP);
-            sendto(socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
-            // if (bytes_sent != sizeof(frame_buffer))
-            // {
-            //     std::cout << "Failed to send lldp\n";
-            // }
+            ssize_t bytes = sendto(socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+            std::cout << bytes << " bytes sent to " << interface << "\n";
+            if (bytes < 0)
+            {
+                std::cout << "errno: " << errno << "\n";
+            }
         }
     };
 
@@ -441,6 +438,7 @@ namespace ndisc
                 transmit_credits--;
                 if (lldp_sender.has_value())
                 {
+                    std::cout << "Transmitting lldp via device " << if_index << "\n";
                     lldp_sender->SendLldp(if_index, *mac_address, ip_address, TARGET_TTL);
                 }
             }

@@ -140,18 +140,8 @@ namespace ndisc
             return;
         }
 
-        std::ios_base::fmtflags f(std::cout.flags());
-        std::cout << std::hex << std::setw(2) << std::setfill('0');
-        std::cout << address.sll_addr[0];
-        for (const unsigned char &data : std::span<const unsigned char>(address.sll_addr).subspan(1))
-        {
-            std::cout << ":" << data;
-        }
-        std::cout.flags(f);
-
         std::array<char, IF_NAMESIZE> interface_name{};
         if_indextoname(address.sll_ifindex, interface_name.data());
-        std::cout << "LLDP packet incoming from " << address.sll_ifindex << " interface: " << interface_name.data() << "\n";
         std::optional<LLDPDataUnit> data_unit = LLDPDataUnit::fromSpan(frame);
         if (!data_unit.has_value())
         {
@@ -178,9 +168,6 @@ namespace ndisc
         std::string chassis;
         chassis.resize(entry.chassis_id.size());
         std::copy(entry.chassis_id.begin(), entry.chassis_id.end(), chassis.begin());
-        std::cout << "Received LLDP with chassis: " << chassis << " and port " << std::hex
-                  << (uint64_t)entry.port_id[0] << ":" << (uint64_t)entry.port_id[1] << ":" << (uint64_t)entry.port_id[2]
-                  << ":" << (uint64_t)entry.port_id[3] << ":" << (uint64_t)entry.port_id[4] << ":" << (uint64_t)entry.port_id[5] << std::dec << "\n";
         neighbour_list.chassis_map[entry.chassis_id][entry.port_id] = std::move(entry);
     }
 

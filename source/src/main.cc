@@ -14,12 +14,6 @@
 
 using namespace std::chrono_literals;
 
-void printPacketType(ndisc::NetlinkPacketView packet)
-{
-    std::cout << "printPacketType ";
-    std::cout << packet.index() << "\n";
-}
-
 auto packetConverter(const std::function<void(ndisc::NetlinkPacketView)> CALLBACK)
 {
     return [CALLBACK](std::span<uint8_t> packet) -> void
@@ -53,58 +47,10 @@ struct DeviceRepository
     std::unique_ptr<ndisc::NetlinkSocket> ip_reader;
 };
 
-void logDevice(const ndisc::DeviceData &device)
-{
-    std::ios_base::fmtflags f(std::cout.flags());
-    std::cout << "If ";
-    if (device.mac_address.has_value())
-    {
-        std::ios_base::fmtflags f(std::cout.flags());
-        std::cout << std::setfill('0') << std::setw(2) << std::hex << (int)device.mac_address.value()[0] << std::dec << std::setfill(' ');
-        for (int i = 1; i < 6; i++)
-        {
-            std::cout << ":" << std::setfill('0') << std::setw(2) << std::hex << (int)device.mac_address.value()[i] << std::dec << std::setfill(' ');
-        }
-        std::cout.flags(f);
-    }
-    else
-    {
-        std::cout << "XX:XX:XX:XX:XX:XX";
-    }
-    std::cout << "\t";
-    if (device.ip_address.has_value())
-    {
-
-        std::ios_base::fmtflags f(std::cout.flags());
-        std::cout << std::setfill(' ') << std::setw(3) << (int)device.ip_address.value()[0];
-        for (int i = 1; i < 4; i++)
-        {
-            std::cout << "." << std::setfill(' ') << std::setw(3) << (int)device.ip_address.value()[i];
-        }
-        std::cout.flags(f);
-    }
-    else
-    {
-        std::cout << "XXX.XXX.XXX.XXX";
-    }
-    std::cout.flags(f);
-    std::cout << "\t";
-    if (device.interface_name.has_value())
-    {
-        std::cout << "Name length: " << device.interface_name.value().size() << " Name: " << device.interface_name.value();
-    }
-    else
-    {
-        std::cout << "Name: XXXX";
-    }
-    std::cout << "\n";
-}
-
 void tryDeviceUpdateDispatch(DeviceRepository &repository)
 {
     if (std::chrono::steady_clock::now() > repository.scheduled_link_dump)
     {
-        std::cout << "Scheduled link dump\n";
         repository.device_reader->SendGetLinkDumpMessage();
         repository.device_sequence_number = repository.device_reader->GetSequenceNumber();
         repository.device_reader_state = ReaderState::READING;
@@ -117,32 +63,16 @@ void tryIpUpdateDispatch(DeviceRepository &repository)
 {
     if (std::chrono::steady_clock::now() > repository.scheduled_addr_dump)
     {
-        std::cout << "Scheduled address dump\n";
         repository.ip_reader->SendGetAddrMessage();
         repository.ip_sequence_number = repository.ip_reader->GetSequenceNumber();
         repository.ip_reader_state = ReaderState::READING;
-        repository.scheduled_addr_dump = std::chrono::steady_clock::now() + 2min;
-        // unsigned int index = repository.ip_query_queue.front();
-        // repository.ip_query_queue.pop();
-        // std::cout << "Fetching ip of device " << index << "\n";
-        // repository.ip_reader->SendGetAddrMessage(index);
-        // repository.ip_sequence_number = repository.ip_reader->GetSequenceNumber();
-        // repository.ip_current_index = index;
-        // repository.ip_resend_dump_time = std::chrono::steady_clock::now() + 1s;
-        // repository.ip_reader_state = ReaderState::READING;
+        repository.scheduled_addr_dump = std::chrono::steady_clock::now() + 10s;
     }
-}
-
-void repositoryMonitor(DeviceRepository &repository)
-{
-    std::cout << "Found " << repository.devices.size() << " devices\n";
 }
 
 const std::array<void (*)(DeviceRepository &), 2> repository_state_managers{
     &tryDeviceUpdateDispatch,
     &tryIpUpdateDispatch,
-    // &checkIpUpdateTimeout,
-    // &repositoryMonitor,
 };
 
 void expiditeLinkDump(DeviceRepository &repository)
@@ -159,7 +89,6 @@ void handleMonitorPackets(DeviceRepository &repository, ndisc::NetlinkPacketView
 {
     if (std::get_if<ndisc::LinkView>(&packet) != nullptr || std::get_if<ndisc::AddrView>(&packet) != nullptr)
     {
-        std::cout << "Expiditing Link dump\n";
         expiditeLinkDump(repository);
     }
 }
@@ -176,10 +105,6 @@ void updateDeviceList(DeviceRepository &repository, ndisc::NetlinkPacketView pac
     }
     unsigned int sequence_number = std::visit([&](auto packet)
                                               { return packet.header->nlmsg_seq; }, packet);
-    if (sequence_number > repository.device_sequence_number.value())
-    {
-        std::cout << "Sequence number somehow larger\n";
-    }
     if (sequence_number != repository.device_sequence_number.value())
     {
         return;
@@ -189,7 +114,6 @@ void updateDeviceList(DeviceRepository &repository, ndisc::NetlinkPacketView pac
         if (link_message->header->nlmsg_type == RTM_NEWLINK && link_message->content.interface_info->ifi_type == ARPHRD_ETHER)
         {
             int index = link_message->content.interface_info->ifi_index;
-            std::cout << "New link with index: " << index << "\n";
             ndisc::DeviceData &device = repository.devices[index];
             device.if_index = index;
             for (const ndisc::TLVView attribute : link_message->content.attributes)
@@ -198,7 +122,12 @@ void updateDeviceList(DeviceRepository &repository, ndisc::NetlinkPacketView pac
                 {
                     if (attribute.value.size() > 1)
                     {
+
                         device.interface_name = std::string(attribute.value.begin(), attribute.value.end());
+                        if (device.interface_name->size() > 0 && device.interface_name->back() == '\0')
+                        {
+                            device.interface_name->resize(device.interface_name->size() - 1);
+                        }
                     }
                 }
                 else if (attribute.attribute_header->rta_type == IFLA_ADDRESS)
@@ -210,29 +139,25 @@ void updateDeviceList(DeviceRepository &repository, ndisc::NetlinkPacketView pac
                     }
                     else
                     {
-
-                        std::ios_base::fmtflags f(std::cout.flags());
-                        std::cout << "Unexpected size for address payload " << attribute.value.size() << "\n";
-                        std::cout << "Payload:";
+                        std::ios_base::fmtflags f(std::cerr.flags());
+                        std::cerr << "Unexpected size for address payload " << attribute.value.size() << "\n";
+                        std::cerr << "Payload:";
                         for (int x : attribute.value)
                         {
-                            std::cout << " " << std::setfill('0') << std::setw(2) << std::hex << x << std::dec;
+                            std::cerr << " " << std::setfill('0') << std::setw(2) << std::hex << x << std::dec;
                         }
-                        std::cout << "\n";
-                        std::cout.flags(f);
+                        std::cerr << "\n";
+                        std::cerr.flags(f);
                     }
                 }
             }
-            logDevice(repository.devices[index]);
             expiditeAddrDump(repository);
         }
     }
     else if (std::get_if<ndisc::DoneView>(&packet))
     {
-        std::cout << "Device dump complete\n";
         repository.device_sequence_number = std::nullopt;
         repository.device_reader_state = ReaderState::IDLE;
-        std::cout << repository.devices.size() << " devices found\n";
     }
     else if (std::get_if<ndisc::ErrorView>(&packet))
     {
@@ -253,18 +178,14 @@ void updateAddressList(DeviceRepository &repository, ndisc::NetlinkPacketView pa
     }
     unsigned int sequence_number = std::visit([&](auto packet)
                                               { return packet.header->nlmsg_seq; }, packet);
-    std::cout << "updateAddressList: Checking sequence number\n";
     if (sequence_number > repository.ip_sequence_number.value())
     {
-        std::cout << "Sequence number somehow larger\n";
+        std::cerr << "Sequence number somehow larger\n";
     }
     if (sequence_number != repository.ip_sequence_number.value())
     {
         return;
     }
-    std::cout << "Packet type: " << std::visit([&](auto packet)
-                                               { return packet.header->nlmsg_type; }, packet)
-              << "\n";
     if (ndisc::AddrView *link_message = std::get_if<ndisc::AddrView>(&packet))
     {
         if (link_message->header->nlmsg_type == RTM_NEWADDR)
@@ -283,37 +204,18 @@ void updateAddressList(DeviceRepository &repository, ndisc::NetlinkPacketView pa
             {
                 if (attribute.attribute_header->rta_type == IFA_ADDRESS)
                 {
+                    std::cout << "Address found for " << repository.devices[index].if_index << "\n";
                     if (attribute.value.size() == 4)
                     {
-                        std::cout << "Adding IP address to device with index " << index << "\n";
                         repository.devices[index].ip_address = std::array<uint8_t, 4>{};
                         std::copy(attribute.value.begin(), attribute.value.end(), repository.devices[index].ip_address.value().begin());
-                        logDevice(repository.devices[index]);
-                    }
-                    else
-                    {
-
-                        std::ios_base::fmtflags f(std::cout.flags());
-                        std::cout << "Unexpected size for address payload " << attribute.value.size() << "\n";
-                        std::cout << "Payload:";
-                        for (int x : attribute.value)
-                        {
-                            std::cout << " " << std::setfill('0') << std::setw(2) << std::hex << x << std::dec;
-                        }
-                        std::cout << "\n";
-                        std::cout.flags(f);
                     }
                 }
             }
         }
-        else
-        {
-            std::cout << "AddrView type: " << link_message->header->nlmsg_type << "\n";
-        }
     }
     else if (std::get_if<ndisc::DoneView>(&packet))
     {
-        std::cout << "Address dump finished\n";
         repository.ip_sequence_number = std::nullopt;
         repository.ip_reader_state = ReaderState::IDLE;
     }
@@ -348,7 +250,6 @@ struct LldpRepository
 
     void MarkChangedLldpStateMachine(unsigned int idx)
     {
-        std::cout << "Change for idx " << idx << "\n";
         CheckSocketForTxReady(idx);
         if (current_state.contains(idx))
         {
@@ -358,7 +259,6 @@ struct LldpRepository
 
     void DeleteLldpStateMachine(unsigned int idx)
     {
-        std::cout << "Delete for idx " << idx << "\n";
         CheckSocketForTxReady(idx);
         if (current_state.contains(idx))
         {
@@ -369,7 +269,6 @@ struct LldpRepository
 
     void CreateLldpStateMachine(unsigned int idx)
     {
-        std::cout << "Create for idx" << idx << "\n";
         CheckSocketForTxReady(idx);
         if (current_state.contains(idx))
         {
@@ -443,11 +342,17 @@ void lldpStateUpdater(LldpRepository &lldp, DeviceRepository &repository)
 class ClockHandler final : public ndisc::EventHandler
 {
     int socket_fd_;
-    ndisc::NeighbourList neighbour_list_;
+    ndisc::NeighbourList *neighbour_list_;
     DeviceRepository *device_repository_;
     LldpRepository *lldp_repository_;
 
-    ClockHandler(int socket_fd, ndisc::NeighbourList nl, DeviceRepository *dr, LldpRepository *lldp) : socket_fd_(socket_fd), neighbour_list_(nl), device_repository_(dr), lldp_repository_(lldp) {}
+    uint16_t dump_timer_;
+
+    ClockHandler(int socket_fd, ndisc::NeighbourList *nl, DeviceRepository *dr, LldpRepository *lldp) : socket_fd_(socket_fd),
+                                                                                                        neighbour_list_(nl),
+                                                                                                        device_repository_(dr),
+                                                                                                        lldp_repository_(lldp),
+                                                                                                        dump_timer_(0) {}
 
 public:
     void Call() override
@@ -459,7 +364,7 @@ public:
             return;
         }
         std::vector<std::tuple<std::vector<uint8_t>, std::vector<uint8_t>>> timed_out_entries{};
-        for (auto &[chassis, port_map] : neighbour_list_.chassis_map)
+        for (auto &[chassis, port_map] : neighbour_list_->chassis_map)
         {
             for (auto &[port, entry] : port_map)
             {
@@ -476,17 +381,107 @@ public:
         }
         for (const auto &[chassis, port] : timed_out_entries)
         {
-            neighbour_list_.chassis_map[chassis].erase(port);
-            if (neighbour_list_.chassis_map[chassis].empty())
+            neighbour_list_->chassis_map[chassis].erase(port);
+            if (neighbour_list_->chassis_map[chassis].empty())
             {
-                neighbour_list_.chassis_map.erase(chassis);
+                neighbour_list_->chassis_map.erase(chassis);
             }
         }
         tryDeviceUpdateDispatch(*device_repository_);
         tryIpUpdateDispatch(*device_repository_);
         lldpStateUpdater(*lldp_repository_, *device_repository_);
         lldp_repository_->Tick();
-        std::cout << "Found " << neighbour_list_.chassis_map.size() << " chassis.\n";
+        if (dump_timer_ == 0)
+        {
+            dump_timer_ = 20;
+            std::cout << "\033[2J";
+            std::cout << "Device data:\n";
+            std::cout << std::left
+                      << std::setw(4) << "IDX"
+                      << std::setw(24) << "Name"
+                      << std::setw(18) << "MAC"
+                      << std::setw(16) << "IP"
+                      << '\n';
+            for (const auto &[idx, device] : device_repository_->devices)
+            {
+                std::cout << std::left << std::setw(4) << device.if_index
+                          << std::setw(24) << device.interface_name.value_or("---");
+                if (device.mac_address.has_value())
+                {
+                    std::cout << std::right << std::hex << std::setfill('0')
+                              << std::setw(2) << (uint16_t)(*device.mac_address)[0] << ":"
+                              << std::setw(2) << (uint16_t)(*device.mac_address)[1] << ":"
+                              << std::setw(2) << (uint16_t)(*device.mac_address)[2] << ":"
+                              << std::setw(2) << (uint16_t)(*device.mac_address)[3] << ":"
+                              << std::setw(2) << (uint16_t)(*device.mac_address)[4] << ":"
+                              << std::setw(2) << (uint16_t)(*device.mac_address)[5] << " "
+                              << std::dec << std::setfill(' ');
+                }
+                else
+                {
+                    std::cout << std::setw(18) << "";
+                }
+                if (device.ip_address.has_value())
+                {
+                    std::cout << std::left
+                              << (uint16_t)(*device.ip_address)[0] << '.'
+                              << (uint16_t)(*device.ip_address)[1] << '.'
+                              << (uint16_t)(*device.ip_address)[2] << '.'
+                              << (uint16_t)(*device.ip_address)[3] << ' ';
+                }
+                else
+                {
+                    std::cout << std::left << std::setw(16) << "Unknown";
+                }
+                std::cout << "\n";
+            }
+            std::cout << "\n\n";
+            std::cout << "Found " << neighbour_list_->chassis_map.size() << " chassis\n";
+            std::cout << "\n\nNeighbours:\n";
+            std::cout << std::left
+                      << std::setw(36) << "Chassis"
+                      << std::setw(18) << "Port"
+                      << std::setw(16) << "IP"
+                      << std::setw(12) << "TTL"
+                      << '\n';
+
+            for (const auto &[chassis_id, port_map] : neighbour_list_->chassis_map)
+            {
+
+                std::string chassis;
+                chassis.resize(chassis_id.size() - 2);
+                std::copy(chassis_id.begin() + 1, chassis_id.end() - 1, chassis.begin());
+                std::cout << "Chassis: " << chassis << "\n";
+                for (const auto &[port_id, neighbour] : port_map)
+                {
+                    std::cout << std::setw(36) << chassis;
+                    std::cout << std::right << std::hex << std::setfill('0')
+                              << std::setw(2) << (uint16_t)(neighbour.port_id)[0] << ":"
+                              << std::setw(2) << (uint16_t)(neighbour.port_id)[1] << ":"
+                              << std::setw(2) << (uint16_t)(neighbour.port_id)[2] << ":"
+                              << std::setw(2) << (uint16_t)(neighbour.port_id)[3] << ":"
+                              << std::setw(2) << (uint16_t)(neighbour.port_id)[4] << ":"
+                              << std::setw(2) << (uint16_t)(neighbour.port_id)[5] << " "
+                              << std::dec << std::setfill(' ');
+                    if (neighbour.ip_address.has_value())
+                    {
+                        std::cout << std::left
+                                  << (uint16_t)(*neighbour.ip_address)[0] << '.'
+                                  << (uint16_t)(*neighbour.ip_address)[1] << '.'
+                                  << (uint16_t)(*neighbour.ip_address)[2] << '.'
+                                  << (uint16_t)(*neighbour.ip_address)[3] << ' ';
+                    }
+                    else
+                    {
+                        std::cout << std::left << std::setw(16) << "Unknown";
+                    }
+
+                    std::cout << std::setw(12) << neighbour.time_to_live;
+                    std::cout << '\n';
+                }
+            }
+        }
+        dump_timer_--;
     }
 
     uint32_t GetEvents() const override
@@ -512,7 +507,7 @@ public:
         timer_spec.it_interval.tv_nsec = 0;
         timer_spec.it_interval.tv_sec = 1;
         timerfd_settime(socket_fd, 0, &timer_spec, nullptr);
-        return std::make_unique<ClockHandler>(ClockHandler(socket_fd, neighbour_list, &device_repository, &lldp_repository));
+        return std::make_unique<ClockHandler>(ClockHandler(socket_fd, &neighbour_list, &device_repository, &lldp_repository));
     }
 };
 
@@ -582,15 +577,8 @@ int main()
         return -1;
     }
     manager.Add(*clock);
-
-    std::chrono::time_point<std::chrono::steady_clock> last_dot_printed = std::chrono::steady_clock::now();
     while (true)
     {
         manager.Wait();
-        while (std::chrono::steady_clock::now() - last_dot_printed > 10s)
-        {
-            std::cout << ".\n";
-            last_dot_printed += 10s;
-        }
     }
 }

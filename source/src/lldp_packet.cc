@@ -74,23 +74,19 @@ namespace ndisc
         const std::optional<LLDPDUTypeLengthValue> chassis_id_tlv = LLDPDUTypeLengthValue::fromSpan(data_unit_bytes);
         if (!chassis_id_tlv.has_value())
         {
-            std::cout << "Failed to read chassis\n";
             return std::nullopt;
         }
         if (chassis_id_tlv->type != 1)
         {
-            std::cout << "Chassis wrong type: " << (uint64_t)chassis_id_tlv->type << "\n";
             return std::nullopt;
         }
         const std::optional<LLDPDUTypeLengthValue> port_id_tlv = LLDPDUTypeLengthValue::fromSpan(data_unit_bytes);
         if (!port_id_tlv.has_value())
         {
-            std::cout << "Failed to read port\n";
             return std::nullopt;
         }
         if (port_id_tlv->type != 2)
         {
-            std::cout << "Port wrong type\n";
             return std::nullopt;
         }
         const std::optional<LLDPDUTypeLengthValue> ttl_tlv = LLDPDUTypeLengthValue::fromSpan(data_unit_bytes);
