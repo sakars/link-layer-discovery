@@ -393,6 +393,7 @@ namespace ndisc
                 management_tlv.type = management_tlv_type;
                 management_tlv.value.resize(4);
                 std::copy(ip_address->begin(), ip_address->end(), management_tlv.value.begin());
+                frame.data_unit.optional_tlv.push_back(management_tlv);
             }
             const std::vector<uint8_t> frame_buffer = frame.toFrameBuffer();
             sockaddr_ll address;

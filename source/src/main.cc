@@ -393,7 +393,7 @@ public:
         lldp_repository_->Tick();
         if (dump_timer_ == 0)
         {
-            dump_timer_ = 20;
+            dump_timer_ = 1;
             std::cout << "\033[2J";
             std::cout << "Device data:\n";
             std::cout << std::left
