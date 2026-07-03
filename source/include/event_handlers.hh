@@ -26,7 +26,6 @@ namespace ndisc
 
     class EventManager
     {
-        std::vector<std::unique_ptr<EventHandler>> registered_handlers_;
 
         int epfd_ = -1;
 
@@ -88,12 +87,17 @@ namespace ndisc
             return EventManager(epfd);
         }
 
+        // void Add(std::unique_ptr<EventHandler> handler)
+        // {
+        //     this->Add(*handler);
+        //     registered_handlers_.push_back(std::move(handler));
+        // }
+
         void Add(EventHandler &handler)
         {
             epoll_event event{};
             event.data.ptr = &handler;
             event.events = handler.GetEvents();
-
             epoll_ctl(epfd_, EPOLL_CTL_ADD, handler.GetSocket(), &event);
         }
 

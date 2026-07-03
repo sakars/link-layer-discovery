@@ -1,7 +1,5 @@
 
-#include "system_information.hh"
 #include "netlink_monitor.hh"
-#include "scheduler.hh"
 #include "lldp_monitor.hh"
 
 #include <iomanip>
@@ -522,10 +520,8 @@ void handler(int sig)
     void *array[10];
     size_t size;
 
-    // get void*'s for all entries on the stack
     size = backtrace(array, 10);
 
-    // print out all the frames to stderr
     fprintf(stderr, "Error: signal %d:\n", sig);
     backtrace_symbols_fd(array, size, STDERR_FILENO);
     exit(1);
@@ -534,7 +530,8 @@ void handler(int sig)
 int main()
 {
 
-    signal(SIGSEGV, handler); // install our handler
+    signal(SIGSEGV, handler);
+
     std::optional<ndisc::EventManager> manager_create_result = ndisc::EventManager::Create();
 
     if (!manager_create_result.has_value())
@@ -544,24 +541,27 @@ int main()
     }
     DeviceRepository repository;
     ndisc::EventManager manager = std::move(manager_create_result.value());
+
     auto multicast_socket = ndisc::NetlinkSocket::Create(packetConverter(std::bind_front(handleMonitorPackets, std::ref(repository))), RTMGRP_LINK | RTMGRP_IPV4_IFADDR);
     manager.Add(*multicast_socket);
+
     repository.device_reader = ndisc::NetlinkSocket::Create(packetConverter(std::bind_front(updateDeviceList, std::ref(repository))), 0);
     if (repository.device_reader == nullptr)
     {
         std::cerr << "Failed to make device netlink socket.\n";
         return -1;
     }
+    manager.Add(*repository.device_reader);
     repository.ip_reader = ndisc::NetlinkSocket::Create(packetConverter(std::bind_front(updateAddressList, std::ref(repository))), 0);
     if (repository.ip_reader == nullptr)
     {
         std::cerr << "Failed to make address netlink socket.\n";
         return -1;
     }
-    manager.Add(*repository.device_reader);
     manager.Add(*repository.ip_reader);
 
     ndisc::NeighbourList neighbour_list;
+
     std::unique_ptr<ndisc::EthernetLldpMonitor> monitor = ndisc::EthernetLldpMonitor::Create(std::bind_front(ndisc::lldpFrameParser, std::ref(neighbour_list)));
     if (monitor == nullptr)
     {
@@ -569,7 +569,9 @@ int main()
         return -1;
     }
     manager.Add(*monitor);
+
     LldpRepository lldp;
+
     std::unique_ptr<ClockHandler> clock = ClockHandler::Create(neighbour_list, repository, lldp);
     if (clock == nullptr)
     {
@@ -577,6 +579,7 @@ int main()
         return -1;
     }
     manager.Add(*clock);
+
     while (true)
     {
         manager.Wait();

@@ -1,6 +1,5 @@
 
 #include "lldp_packet.hh"
-#include "system_information.hh"
 #include <stdint.h>
 #include <arpa/inet.h>
 #include <array>

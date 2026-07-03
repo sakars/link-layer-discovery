@@ -1,7 +1,6 @@
 #ifndef NETLINK_MONITOR_HH
 #define NETLINK_MONITOR_HH
 
-#include "scheduler.hh"
 #include "event_handlers.hh"
 #include "lldp_packet.hh"
 
@@ -22,6 +21,7 @@
 #include <net/ethernet.h>
 #include <linux/if_packet.h>
 #include <iostream>
+#include <functional>
 
 namespace ndisc
 {
