@@ -1,229 +1,17 @@
 
-#include "netlink_monitor.hh"
+#include "device_repository.hh"
 #include "lldp_monitor.hh"
+#include "netlink_monitor.hh"
 
+#include <chrono>
 #include <iomanip>
 #include <iostream>
-#include <unistd.h>
-#include <thread>
-#include <chrono>
 #include <queue>
 #include <sys/timerfd.h>
+#include <thread>
+#include <unistd.h>
 
 using namespace std::chrono_literals;
-
-auto packetConverter(const std::function<void(ndisc::NetlinkPacketView)> CALLBACK)
-{
-    return [CALLBACK](std::span<uint8_t> packet) -> void
-    {
-        CALLBACK(ndisc::packetViewParser(packet));
-    };
-}
-
-enum class ReaderState
-{
-    IDLE,
-    READING,
-    ERRORED,
-};
-
-// TODO: Prevent type erasure on NetlinkSockets
-struct DeviceRepository
-{
-    std::map<unsigned int, ndisc::DeviceData> devices;
-
-    std::optional<unsigned int> device_sequence_number = std::nullopt;
-    ReaderState device_reader_state = ReaderState::IDLE;
-    std::chrono::time_point<std::chrono::steady_clock> scheduled_link_dump = std::chrono::steady_clock::now();
-
-    ReaderState ip_reader_state = ReaderState::IDLE;
-    std::chrono::time_point<std::chrono::steady_clock> scheduled_addr_dump = std::chrono::steady_clock::now() + 2min;
-    std::optional<unsigned int> ip_sequence_number = std::nullopt;
-
-    std::unique_ptr<ndisc::NetlinkSocket> monitor;
-    std::unique_ptr<ndisc::NetlinkSocket> device_reader;
-    std::unique_ptr<ndisc::NetlinkSocket> ip_reader;
-};
-
-void tryDeviceUpdateDispatch(DeviceRepository &repository)
-{
-    if (std::chrono::steady_clock::now() > repository.scheduled_link_dump)
-    {
-        repository.device_reader->SendGetLinkDumpMessage();
-        repository.device_sequence_number = repository.device_reader->GetSequenceNumber();
-        repository.device_reader_state = ReaderState::READING;
-        repository.scheduled_link_dump = std::chrono::steady_clock::now() + 2min;
-        repository.devices.clear();
-    }
-}
-
-void tryIpUpdateDispatch(DeviceRepository &repository)
-{
-    if (std::chrono::steady_clock::now() > repository.scheduled_addr_dump)
-    {
-        repository.ip_reader->SendGetAddrMessage();
-        repository.ip_sequence_number = repository.ip_reader->GetSequenceNumber();
-        repository.ip_reader_state = ReaderState::READING;
-        repository.scheduled_addr_dump = std::chrono::steady_clock::now() + 10s;
-    }
-}
-
-const std::array<void (*)(DeviceRepository &), 2> repository_state_managers{
-    &tryDeviceUpdateDispatch,
-    &tryIpUpdateDispatch,
-};
-
-void expiditeLinkDump(DeviceRepository &repository)
-{
-    repository.scheduled_link_dump = std::chrono::steady_clock::now() + 2s;
-}
-
-void expiditeAddrDump(DeviceRepository &repository)
-{
-    repository.scheduled_addr_dump = std::chrono::steady_clock::now() + 2s;
-}
-
-void handleMonitorPackets(DeviceRepository &repository, ndisc::NetlinkPacketView packet)
-{
-    if (std::get_if<ndisc::LinkView>(&packet) != nullptr || std::get_if<ndisc::AddrView>(&packet) != nullptr)
-    {
-        expiditeLinkDump(repository);
-    }
-}
-
-void updateDeviceList(DeviceRepository &repository, ndisc::NetlinkPacketView packet)
-{
-    if (repository.device_reader_state != ReaderState::READING)
-    {
-        return;
-    }
-    if (!repository.device_sequence_number.has_value())
-    {
-        return;
-    }
-    unsigned int sequence_number = std::visit([&](auto packet)
-                                              { return packet.header->nlmsg_seq; }, packet);
-    if (sequence_number != repository.device_sequence_number.value())
-    {
-        return;
-    }
-    if (ndisc::LinkView *link_message = std::get_if<ndisc::LinkView>(&packet))
-    {
-        if (link_message->header->nlmsg_type == RTM_NEWLINK && link_message->content.interface_info->ifi_type == ARPHRD_ETHER)
-        {
-            int index = link_message->content.interface_info->ifi_index;
-            ndisc::DeviceData &device = repository.devices[index];
-            device.if_index = index;
-            for (const ndisc::TLVView attribute : link_message->content.attributes)
-            {
-                if (attribute.attribute_header->rta_type == IFLA_IFNAME)
-                {
-                    if (attribute.value.size() > 1)
-                    {
-
-                        device.interface_name = std::string(attribute.value.begin(), attribute.value.end());
-                        if (device.interface_name->size() > 0 && device.interface_name->back() == '\0')
-                        {
-                            device.interface_name->resize(device.interface_name->size() - 1);
-                        }
-                    }
-                }
-                else if (attribute.attribute_header->rta_type == IFLA_ADDRESS)
-                {
-                    if (attribute.value.size() == 6)
-                    {
-                        device.mac_address = std::array<uint8_t, 6>{};
-                        std::copy(attribute.value.begin(), attribute.value.end(), device.mac_address.value().begin());
-                    }
-                    else
-                    {
-                        std::ios_base::fmtflags f(std::cerr.flags());
-                        std::cerr << "Unexpected size for address payload " << attribute.value.size() << "\n";
-                        std::cerr << "Payload:";
-                        for (int x : attribute.value)
-                        {
-                            std::cerr << " " << std::setfill('0') << std::setw(2) << std::hex << x << std::dec;
-                        }
-                        std::cerr << "\n";
-                        std::cerr.flags(f);
-                    }
-                }
-            }
-            expiditeAddrDump(repository);
-        }
-    }
-    else if (std::get_if<ndisc::DoneView>(&packet))
-    {
-        repository.device_sequence_number = std::nullopt;
-        repository.device_reader_state = ReaderState::IDLE;
-    }
-    else if (std::get_if<ndisc::ErrorView>(&packet))
-    {
-        // std::cerr << "Failed to get link dump. Retrying...\n";
-        repository.device_reader_state = ReaderState::ERRORED;
-    }
-}
-
-void updateAddressList(DeviceRepository &repository, ndisc::NetlinkPacketView packet)
-{
-    if (repository.ip_reader_state != ReaderState::READING)
-    {
-        return;
-    }
-    if (!repository.ip_sequence_number.has_value())
-    {
-        return;
-    }
-    unsigned int sequence_number = std::visit([&](auto packet)
-                                              { return packet.header->nlmsg_seq; }, packet);
-    if (sequence_number > repository.ip_sequence_number.value())
-    {
-        std::cerr << "Sequence number somehow larger\n";
-    }
-    if (sequence_number != repository.ip_sequence_number.value())
-    {
-        return;
-    }
-    if (ndisc::AddrView *link_message = std::get_if<ndisc::AddrView>(&packet))
-    {
-        if (link_message->header->nlmsg_type == RTM_NEWADDR)
-        {
-            if (link_message->content.address_info->ifa_family != AF_INET)
-            {
-                return;
-            }
-            if ((link_message->content.address_info->ifa_flags & IFA_F_SECONDARY) != 0)
-            {
-                return;
-            }
-            unsigned int index = link_message->content.address_info->ifa_index;
-            repository.devices[index].if_index = index;
-            for (const ndisc::TLVView attribute : link_message->content.attributes)
-            {
-                if (attribute.attribute_header->rta_type == IFA_ADDRESS)
-                {
-                    std::cout << "Address found for " << repository.devices[index].if_index << "\n";
-                    if (attribute.value.size() == 4)
-                    {
-                        repository.devices[index].ip_address = std::array<uint8_t, 4>{};
-                        std::copy(attribute.value.begin(), attribute.value.end(), repository.devices[index].ip_address.value().begin());
-                    }
-                }
-            }
-        }
-    }
-    else if (std::get_if<ndisc::DoneView>(&packet))
-    {
-        repository.ip_sequence_number = std::nullopt;
-        repository.ip_reader_state = ReaderState::IDLE;
-    }
-    else if (ndisc::ErrorView *error_view = std::get_if<ndisc::ErrorView>(&packet))
-    {
-        std::cerr << "Failed to get address dump. " << error_view->error->error << " Retrying...\n";
-        repository.ip_reader_state = ReaderState::ERRORED;
-        expiditeAddrDump(repository);
-    }
-}
 
 struct LldpRepository
 {
@@ -330,8 +118,8 @@ struct LldpRepository
 void lldpStateUpdater(LldpRepository &lldp, DeviceRepository &repository)
 {
     if (
-        repository.device_reader_state == ReaderState::IDLE &&
-        repository.ip_reader_state == ReaderState::IDLE)
+        repository.device_reader.device_reader_state == ReaderState::IDLE &&
+        repository.ip_reader.ip_reader_state == ReaderState::IDLE)
     {
         lldp.UpdateState(repository.devices);
     }
@@ -385,8 +173,7 @@ public:
                 neighbour_list_->chassis_map.erase(chassis);
             }
         }
-        tryDeviceUpdateDispatch(*device_repository_);
-        tryIpUpdateDispatch(*device_repository_);
+        device_repository_->Tick();
         lldpStateUpdater(*lldp_repository_, *device_repository_);
         lldp_repository_->Tick();
         if (dump_timer_ == 0)
@@ -517,13 +304,13 @@ public:
 
 void handler(int sig)
 {
-    void *array[10];
-    size_t size;
+    std::array<void *, 10> array;
+    int size;
 
-    size = backtrace(array, 10);
+    size = backtrace(array.data(), 10);
 
     fprintf(stderr, "Error: signal %d:\n", sig);
-    backtrace_symbols_fd(array, size, STDERR_FILENO);
+    backtrace_symbols_fd(array.data(), size, STDERR_FILENO);
     exit(1);
 }
 
@@ -539,26 +326,13 @@ int main()
         std::cerr << "Failed to initialize Event manager.\n";
         return -1;
     }
-    DeviceRepository repository;
     ndisc::EventManager manager = std::move(manager_create_result.value());
-
-    auto multicast_socket = ndisc::NetlinkSocket::Create(packetConverter(std::bind_front(handleMonitorPackets, std::ref(repository))), RTMGRP_LINK | RTMGRP_IPV4_IFADDR);
-    manager.Add(*multicast_socket);
-
-    repository.device_reader = ndisc::NetlinkSocket::Create(packetConverter(std::bind_front(updateDeviceList, std::ref(repository))), 0);
-    if (repository.device_reader == nullptr)
+    std::expected<DeviceRepository, int> repository_result = DeviceRepository::Create(manager);
+    if (!repository_result.has_value())
     {
-        std::cerr << "Failed to make device netlink socket.\n";
-        return -1;
+        std::cerr << "Failed to create device repository with errno " << repository_result.error();
     }
-    manager.Add(*repository.device_reader);
-    repository.ip_reader = ndisc::NetlinkSocket::Create(packetConverter(std::bind_front(updateAddressList, std::ref(repository))), 0);
-    if (repository.ip_reader == nullptr)
-    {
-        std::cerr << "Failed to make address netlink socket.\n";
-        return -1;
-    }
-    manager.Add(*repository.ip_reader);
+    DeviceRepository repository = std::move(repository_result.value());
 
     ndisc::NeighbourList neighbour_list;
 

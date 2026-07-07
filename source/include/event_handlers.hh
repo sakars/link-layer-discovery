@@ -1,17 +1,25 @@
 #ifndef EVENT_HANDLERS_HH
 #define EVENT_HANDLERS_HH
-#include <vector>
-#include <sys/epoll.h>
-#include <optional>
-#include <iostream>
-#include <unistd.h>
-#include <memory>
+
 #include <array>
+#include <iostream>
+#include <linux/version.h>
+#include <memory>
+#include <optional>
+#include <sys/epoll.h>
+#include <unistd.h>
+#include <vector>
+
+// https://man7.org/linux/man-pages/man2/epoll_ctl.2.html#BUGS
+static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 9));
 
 namespace ndisc
 {
+    constexpr size_t MAX_REGISTERABLE_EVENTS = 20;
+
     class EventHandler
     {
+
     public:
         virtual int GetSocket() const = 0;
         virtual void Call() = 0;
@@ -36,15 +44,25 @@ namespace ndisc
     public:
         EventManager(const EventManager &) = delete;
 
-        EventManager(EventManager &&other)
+        EventManager(EventManager &&other) noexcept
         {
+            if (epfd_ >= 0)
+            {
+                close(epfd_);
+            }
+            epfd_ = -1;
             std::swap(epfd_, other.epfd_);
         }
 
         EventManager &operator=(const EventManager &) = delete;
 
-        EventManager &operator=(EventManager &&other)
+        EventManager &operator=(EventManager &&other) noexcept
         {
+            if (epfd_ >= 0)
+            {
+                close(epfd_);
+            }
+            epfd_ = -1;
             std::swap(epfd_, other.epfd_);
             return *this;
         }
@@ -87,23 +105,22 @@ namespace ndisc
             return EventManager(epfd);
         }
 
-        // void Add(std::unique_ptr<EventHandler> handler)
-        // {
-        //     this->Add(*handler);
-        //     registered_handlers_.push_back(std::move(handler));
-        // }
-
-        void Add(EventHandler &handler)
+        void Add(std::shared_ptr<EventHandler> handler) const
         {
             epoll_event event{};
             event.data.ptr = &handler;
-            event.events = handler.GetEvents();
-            epoll_ctl(epfd_, EPOLL_CTL_ADD, handler.GetSocket(), &event);
+            event.events = handler->GetEvents();
+            epoll_ctl(epfd_, EPOLL_CTL_ADD, handler->GetSocket(), &event);
+        }
+
+        void Remove(EventHandler &handler) const
+        {
+            epoll_ctl(epfd_, EPOLL_CTL_DEL, handler.GetSocket(), nullptr);
         }
 
         static constexpr int MAX_CONCURRENT_EVENTS = 10;
         static constexpr int EPOLL_TIMEOUT = 100;
-        void Wait()
+        void Wait() const
         {
             std::array<epoll_event, MAX_CONCURRENT_EVENTS> events{};
             int fds_ready = epoll_wait(epfd_, events.data(), MAX_CONCURRENT_EVENTS, EPOLL_TIMEOUT);

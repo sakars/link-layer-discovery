@@ -1,15 +1,15 @@
 
 #include "netlink_monitor.hh"
+#include <bitset>
+#include <chrono>
+#include <functional>
+#include <iostream>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
-#include <net/if_arp.h>
-#include <iostream>
-#include <unistd.h>
 #include <memory>
 #include <net/if.h>
-#include <bitset>
-#include <functional>
-#include <chrono>
+#include <net/if_arp.h>
+#include <unistd.h>
 
 using namespace std::chrono_literals;
 
@@ -126,7 +126,7 @@ namespace ndisc
         };
     }
 
-    std::string GetMachineId()
+    std::string getMachineId()
     {
         static std::string machine_id;
         if (machine_id.empty())

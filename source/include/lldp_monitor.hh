@@ -1,25 +1,25 @@
 #ifndef LLDP_MONITOR_HH
 #define LLDP_MONITOR_HH
 
-#include <sys/socket.h>
-#include <linux/if_packet.h>
-#include <net/ethernet.h>
 #include <arpa/inet.h>
-#include <iostream>
-#include <sys/epoll.h>
-#include <unistd.h>
-#include <optional>
-#include <memory>
+#include <chrono>
 #include <functional>
-#include <span>
+#include <iomanip>
+#include <iostream>
+#include <linux/if_packet.h>
+#include <map>
+#include <memory>
+#include <net/ethernet.h>
 #include <net/if.h>
 #include <net/if_arp.h>
-#include <iomanip>
-#include <chrono>
-#include <map>
-#include <iomanip>
+#include <optional>
+#include <span>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "event_handlers.hh"
+#include "lldp.hh"
 #include "lldp_packet.hh"
 
 namespace ndisc
@@ -105,8 +105,8 @@ namespace ndisc
     {
         std::vector<uint8_t> chassis_id;
         std::vector<uint8_t> port_id;
-        uint16_t time_to_live;
-        std::optional<std::array<uint8_t, 4>> ip_address;
+        uint16_t time_to_live = 0;
+        std::optional<std::array<uint8_t, sizeof(in_addr)>> ip_address;
     };
 
     struct NeighbourList
@@ -134,7 +134,7 @@ namespace ndisc
             return;
         }
 
-        if (address.sll_halen != 6)
+        if (address.sll_halen != ETH_ALEN)
         {
             std::cerr << "LLDP packet address wrong size" << address.sll_halen << "\n";
             return;
@@ -142,7 +142,7 @@ namespace ndisc
 
         std::array<char, IF_NAMESIZE> interface_name{};
         if_indextoname(address.sll_ifindex, interface_name.data());
-        std::optional<LLDPDataUnit> data_unit = LLDPDataUnit::fromSpan(frame);
+        std::optional<LLDPDataUnit> data_unit = LLDPDataUnit::FromSpan(frame);
         if (!data_unit.has_value())
         {
             std::cerr << "Failed to parse a data_unit\n";
@@ -151,7 +151,7 @@ namespace ndisc
         std::optional<std::array<uint8_t, 4>> ip_address = std::nullopt;
         for (const LLDPDUTypeLengthValue &tlv : data_unit->optional_tlv)
         {
-            if (tlv.type == 8 && tlv.value.size() == 4)
+            if (tlv.type == lldp::MANAGEMENT_ADDRESS && tlv.value.size() == sizeof(in_addr))
             {
                 ip_address = std::array<uint8_t, 4>();
                 std::copy(tlv.value.begin(), tlv.value.end(), ip_address->begin());

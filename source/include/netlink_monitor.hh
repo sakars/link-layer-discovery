@@ -2,26 +2,28 @@
 #define NETLINK_MONITOR_HH
 
 #include "event_handlers.hh"
+#include "lldp.hh"
 #include "lldp_packet.hh"
 
-#include <vector>
+#include <arpa/inet.h>
 #include <cstdint>
-#include <optional>
-#include <span>
-#include <variant>
+#include <expected>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <linux/if_packet.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
-#include <net/if_arp.h>
 #include <map>
-#include <string>
 #include <memory>
-#include <type_traits>
-#include <fstream>
-#include <arpa/inet.h>
 #include <net/ethernet.h>
-#include <linux/if_packet.h>
-#include <iostream>
-#include <functional>
+#include <net/if_arp.h>
+#include <optional>
+#include <span>
+#include <string>
+#include <type_traits>
+#include <variant>
+#include <vector>
 
 namespace ndisc
 {
@@ -40,7 +42,7 @@ namespace ndisc
         {
         }
 
-        static inline void loadBatch(int socket_fd, std::vector<uint8_t> &data_buffer)
+        static void LoadBatch(int socket_fd, std::vector<uint8_t> &data_buffer)
         {
             if (socket_fd < 0)
             {
@@ -90,7 +92,7 @@ namespace ndisc
             data_buffer.resize(data_length);
         }
 
-        static inline std::optional<std::span<uint8_t>> tryLoadFromSpan(std::span<uint8_t> &remaining_data)
+        static std::optional<std::span<uint8_t>> TryLoadFromSpan(std::span<uint8_t> &remaining_data)
         {
             size_t buffer_size = remaining_data.size();
             const nlmsghdr *header = reinterpret_cast<const nlmsghdr *>(remaining_data.data());
@@ -105,14 +107,14 @@ namespace ndisc
         }
 
     public:
-        static std::unique_ptr<NetlinkSocket> Create(std::function<void(std::span<uint8_t>)> callback, uint32_t multicast_groups)
+        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(std::function<void(std::span<uint8_t>)> callback, uint32_t multicast_groups)
         {
             int socket_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
             if (socket_fd < 0)
             {
                 // TODO: add error report
                 std::cerr << "Failed to make socket\n";
-                return nullptr;
+                return std::unexpected(errno);
             }
             int enable = 1;
             setsockopt(socket_fd, SOL_NETLINK, NETLINK_EXT_ACK, static_cast<const void *>(&enable), sizeof(int));
@@ -125,9 +127,10 @@ namespace ndisc
             int bind_result = bind(socket_fd, reinterpret_cast<const sockaddr *>(&address), sizeof(sockaddr_nl));
             if (bind_result < 0)
             {
+                int err = errno;
                 close(socket_fd);
                 std::cerr << "Failed to bind: errno " << errno << "\n";
-                return nullptr;
+                return std::unexpected(err);
             }
             return std::make_unique<NetlinkSocket>(NetlinkSocket(socket_fd, std::move(callback)));
         }
@@ -145,17 +148,17 @@ namespace ndisc
         void Call() override
         {
             // empty current span
-            for (std::optional<std::span<uint8_t>> packet_from_buffer = tryLoadFromSpan(remaining_data_);
+            for (std::optional<std::span<uint8_t>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
                  packet_from_buffer.has_value();
-                 packet_from_buffer = tryLoadFromSpan(remaining_data_))
+                 packet_from_buffer = TryLoadFromSpan(remaining_data_))
             {
                 callback_(packet_from_buffer.value());
             }
-            loadBatch(socket_fd_, data_buffer_);
+            LoadBatch(socket_fd_, data_buffer_);
             remaining_data_ = std::span<uint8_t>(data_buffer_.begin(), data_buffer_.end());
-            for (std::optional<std::span<uint8_t>> packet_from_buffer = tryLoadFromSpan(remaining_data_);
+            for (std::optional<std::span<uint8_t>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
                  packet_from_buffer.has_value();
-                 packet_from_buffer = tryLoadFromSpan(remaining_data_))
+                 packet_from_buffer = TryLoadFromSpan(remaining_data_))
             {
                 callback_(packet_from_buffer.value());
             }
@@ -266,7 +269,7 @@ namespace ndisc
 
     struct MessageView
     {
-        nlmsghdr *header;
+        nlmsghdr *header = nullptr;
         MessageContentView content;
     };
 
@@ -278,7 +281,7 @@ namespace ndisc
 
     struct LinkView
     {
-        nlmsghdr *header;
+        nlmsghdr *header = nullptr;
         LinkContentView content;
     };
 
@@ -290,7 +293,7 @@ namespace ndisc
 
     struct AddrView
     {
-        nlmsghdr *header;
+        nlmsghdr *header = nullptr;
         AddrContentView content;
     };
 
@@ -313,14 +316,14 @@ namespace ndisc
 
     NetlinkPacketView packetViewParser(std::span<uint8_t> packet);
 
-    const uint16_t MAX_TRANSMIT_CREDITS = 5;
-    const uint16_t FAST_TRANSMIT_AMOUNT = 4;
-    const uint16_t TARGET_TTL = 30;
-    const uint16_t PACKET_HOLD_AMOUNT = 5;
-    const uint16_t MESSAGE_TRANSMIT_INTERVAL = TARGET_TTL / PACKET_HOLD_AMOUNT;
-    const uint16_t MESSAGE_FAST_INTERVAL = 1;
+    constexpr uint16_t MAX_TRANSMIT_CREDITS = 5;
+    constexpr uint16_t FAST_TRANSMIT_AMOUNT = 4;
+    constexpr uint16_t TARGET_TTL = 30;
+    constexpr uint16_t PACKET_HOLD_AMOUNT = 5;
+    constexpr uint16_t MESSAGE_TRANSMIT_INTERVAL = TARGET_TTL / PACKET_HOLD_AMOUNT;
+    constexpr uint16_t MESSAGE_FAST_INTERVAL = 1;
 
-    std::string GetMachineId();
+    std::string getMachineId();
 
     class LldpSender
     {
@@ -337,12 +340,12 @@ namespace ndisc
             }
         }
         LldpSender(const LldpSender &) = delete;
-        LldpSender(LldpSender &&other) : socket_fd_(other.socket_fd_)
+        LldpSender(LldpSender &&other) noexcept : socket_fd_(other.socket_fd_)
         {
             other.socket_fd_ = -1;
         }
         LldpSender &operator=(const LldpSender &) = delete;
-        LldpSender &operator=(LldpSender &&other)
+        LldpSender &operator=(LldpSender &&other) noexcept
         {
             if (socket_fd_ >= 0)
             {
@@ -363,40 +366,36 @@ namespace ndisc
             return LldpSender(socket_fd);
         }
 
-        void SendLldp(int interface, const std::array<uint8_t, 6> &mac, const std::optional<std::array<uint8_t, 4>> &ip_address, uint16_t ttl)
+        void SendLldp(int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
         {
             static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
-            static const uint8_t chassis_id_tlv_type = 1;
-            static const uint8_t port_id_tlv_type = 2;
-            static const uint8_t time_to_live_tlv_type = 3;
-            static const uint8_t management_tlv_type = 8;
             LLDPEthernetFrame frame{};
             std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
             std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
             frame.header.ether_type = htons(ETH_P_LLDP);
-            frame.data_unit.chassis_id.type = chassis_id_tlv_type;
-            std::string chassis = GetMachineId();
+            frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
+            std::string chassis = getMachineId();
             chassis = '\x07' + chassis;
             frame.data_unit.chassis_id.value.resize(chassis.size());
             std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
-            frame.data_unit.port_id.type = port_id_tlv_type;
-            frame.data_unit.port_id.value.resize(7);
+            frame.data_unit.port_id.type = lldp::PORT_ID;
+            frame.data_unit.port_id.value.resize(1 + ETH_ALEN);
             frame.data_unit.port_id.value[0] = 0x03;
             std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
-            frame.data_unit.time_to_live.type = time_to_live_tlv_type;
-            frame.data_unit.time_to_live.value.resize(2);
-            const std::array<uint8_t, 2> network_ttl = std::bit_cast<std::array<uint8_t, 2>>(htons(ttl));
+            frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
+            frame.data_unit.time_to_live.value.resize(sizeof(ttl));
+            const std::array<uint8_t, sizeof(ttl)> network_ttl = std::bit_cast<std::array<uint8_t, sizeof(ttl)>>(htons(ttl));
             std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
             if (ip_address.has_value())
             {
                 LLDPDUTypeLengthValue management_tlv;
-                management_tlv.type = management_tlv_type;
-                management_tlv.value.resize(4);
+                management_tlv.type = lldp::MANAGEMENT_ADDRESS;
+                management_tlv.value.resize(sizeof(in_addr));
                 std::copy(ip_address->begin(), ip_address->end(), management_tlv.value.begin());
                 frame.data_unit.optional_tlv.push_back(management_tlv);
             }
-            const std::vector<uint8_t> frame_buffer = frame.toFrameBuffer();
-            sockaddr_ll address;
+            const std::vector<uint8_t> frame_buffer = frame.ToFrameBuffer();
+            sockaddr_ll address{};
             address.sll_family = AF_PACKET;
             std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));
             address.sll_halen = multicast_address.size();
@@ -413,8 +412,8 @@ namespace ndisc
 
     struct DeviceData
     {
-        std::optional<std::array<uint8_t, 6>> mac_address = std::nullopt;
-        std::optional<std::array<uint8_t, 4>> ip_address = std::nullopt;
+        std::optional<std::array<uint8_t, ETH_ALEN>> mac_address = std::nullopt;
+        std::optional<std::array<uint8_t, sizeof(in_addr)>> ip_address = std::nullopt;
         std::optional<std::string> interface_name = std::nullopt;
         std::optional<LldpSender> lldp_sender = std::nullopt;
         int if_index;
