@@ -359,7 +359,7 @@ int main()
 
     std::cout << "Clock handler initialized" << std::endl;
 
-    std::expected<std::unique_ptr<ndisc::data::DataTransportRepository>, int> dtr_result = ndisc::data::DataTransportRepository::Create();
+    std::expected<std::unique_ptr<ndisc::data::DataTransportRepository>, int> dtr_result = ndisc::data::DataTransportRepository::Create(manager);
     if (!dtr_result.has_value())
     {
         std::cerr << "Failed to create DataTransportRepository, errno: " << dtr_result.error() << "\n";
