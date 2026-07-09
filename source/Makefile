@@ -1,6 +1,6 @@
 
 
-libfiles = lldp_packet netlink_monitor lldp_monitor
+libfiles = lldp_packet netlink_monitor lldp_monitor data_transport
 object_files = $(addprefix ../out/,$(addsuffix .o, $(libfiles)))
 input_files = $(addprefix src/,$(addsuffix .cc, $(libfiles)))
 
