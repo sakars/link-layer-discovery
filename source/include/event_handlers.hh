@@ -136,7 +136,7 @@ namespace ndisc
         static constexpr int EPOLL_TIMEOUT = 100;
         void Wait()
         {
-            std::vector<size_t> expired_handlers{};
+            std::vector<uint64_t> expired_handlers{};
             for (const auto &[handler_id, event_handler] : registered_events_)
             {
                 if (event_handler.expired())
@@ -144,7 +144,7 @@ namespace ndisc
                     expired_handlers.push_back(handler_id);
                 }
             }
-            for (const size_t &handler_id : expired_handlers)
+            for (const uint64_t &handler_id : expired_handlers)
             {
                 std::expected<void, int> remove_result = Remove(handler_id);
                 if (!remove_result.has_value())

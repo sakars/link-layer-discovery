@@ -259,17 +259,17 @@ struct DeviceRepository
         }
         repository.ip_reader.ip_reader = std::move(ip_socket.value());
 
-        std::expected<size_t, int> add_device_reader_result = manager.Add(repository.device_reader.device_reader);
+        std::expected<uint64_t, int> add_device_reader_result = manager.Add(repository.device_reader.device_reader);
         if (!add_device_reader_result.has_value())
         {
             return std::unexpected(add_device_reader_result.error());
         }
-        std::expected<size_t, int> add_monitor_result = manager.Add(repository.monitor);
+        std::expected<uint64_t, int> add_monitor_result = manager.Add(repository.monitor);
         if (!add_monitor_result.has_value())
         {
             return std::unexpected(add_monitor_result.error());
         }
-        std::expected<size_t, int> ip_reader_result = manager.Add(repository.ip_reader.ip_reader);
+        std::expected<uint64_t, int> ip_reader_result = manager.Add(repository.ip_reader.ip_reader);
         if (!ip_reader_result.has_value())
         {
             return std::unexpected(ip_reader_result.error());
