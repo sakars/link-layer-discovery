@@ -99,7 +99,7 @@ namespace ndisc
         std::expected<size_t, int> Add(const std::shared_ptr<EventHandler> &handler)
         {
             epoll_event event{};
-            event.data.ptr = handler.get();
+            event.data.u64 = event_id_counter_;
             event.events = handler->GetEvents();
             int return_value = epoll_ctl(epfd_, EPOLL_CTL_ADD, handler->GetSocket(), &event);
             if (return_value != 0)
@@ -132,7 +132,7 @@ namespace ndisc
         static constexpr int EPOLL_TIMEOUT = 100;
         void Wait()
         {
-            std::vector<size_t> expired_handlers;
+            std::vector<size_t> expired_handlers{};
             for (const auto &[handler_id, event_handler] : registered_events_)
             {
                 if (event_handler.expired())
@@ -156,7 +156,15 @@ namespace ndisc
             }
             for (int i = 0; i < fds_ready; i++)
             {
-                reinterpret_cast<EventHandler *>(events.at(i).data.ptr)->Call();
+                uint64_t handle = events.at(i).data.u64;
+                if (registered_events_.contains(handle))
+                {
+                    std::shared_ptr<EventHandler> handler = registered_events_.at(handle).lock();
+                    if (handler != nullptr)
+                    {
+                        handler->Call();
+                    }
+                }
             }
         }
     };
