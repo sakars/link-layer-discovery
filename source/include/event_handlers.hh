@@ -35,8 +35,8 @@ namespace ndisc
 
     class EventManager
     {
-        std::map<size_t, std::weak_ptr<EventHandler>> registered_events_;
-        size_t event_id_counter_ = 1;
+        std::map<uint64_t, std::weak_ptr<EventHandler>> registered_events_;
+        uint64_t event_id_counter_ = 1;
         int epfd_ = -1;
 
         EventManager(int epfd) : epfd_(epfd)
@@ -96,8 +96,12 @@ namespace ndisc
             return EventManager(epfd);
         }
 
-        std::expected<size_t, int> Add(const std::shared_ptr<EventHandler> &handler)
+        std::expected<uint64_t, int> Add(const std::shared_ptr<EventHandler> &handler)
         {
+            while (registered_events_.contains(event_id_counter_))
+            {
+                event_id_counter_++;
+            }
             epoll_event event{};
             event.data.u64 = event_id_counter_;
             event.events = handler->GetEvents();
@@ -110,7 +114,7 @@ namespace ndisc
             return event_id_counter_++;
         }
 
-        std::expected<void, int> Remove(size_t handler_id)
+        std::expected<void, int> Remove(uint64_t handler_id)
         {
             if (!registered_events_.contains(handler_id))
             {
