@@ -160,7 +160,7 @@ namespace ndisc
                  packet_from_buffer.has_value();
                  packet_from_buffer = TryLoadFromSpan(remaining_data_))
             {
-                callback_(packet_from_buffer.value());
+                callback_(packet_from_buffer.value()); // NOLINT(bugprone-unchecked-optional-access)
             }
         }
 
@@ -366,8 +366,12 @@ namespace ndisc
             return LldpSender(socket_fd);
         }
 
-        void SendLldp(int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
+        void SendLldp(unsigned int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
         {
+            if (interface > INT_MAX)
+            {
+                return;
+            }
             static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
             LLDPEthernetFrame frame{};
             std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
@@ -399,10 +403,9 @@ namespace ndisc
             address.sll_family = AF_PACKET;
             std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));
             address.sll_halen = multicast_address.size();
-            address.sll_ifindex = interface;
+            address.sll_ifindex = static_cast<int>(interface);
             address.sll_protocol = htons(ETH_P_LLDP);
             ssize_t bytes = sendto(socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
-            std::cout << bytes << " bytes sent to " << interface << "\n";
             if (bytes < 0)
             {
                 std::cout << "errno: " << errno << "\n";
@@ -416,7 +419,7 @@ namespace ndisc
         std::optional<std::array<uint8_t, sizeof(in_addr)>> ip_address = std::nullopt;
         std::optional<std::string> interface_name = std::nullopt;
         std::optional<LldpSender> lldp_sender = std::nullopt;
-        int if_index;
+        unsigned int if_index;
         uint16_t transmit_timer = 0;
         uint16_t transmit_credits = 0;
         uint16_t fast_forward_counter = 0;

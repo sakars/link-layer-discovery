@@ -1,12 +1,17 @@
 
+#include "data_transport.hh"
 #include "device_repository.hh"
 #include "lldp_monitor.hh"
 #include "netlink_monitor.hh"
 
 #include <chrono>
+#include <execinfo.h>
 #include <iomanip>
 #include <iostream>
 #include <queue>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/timerfd.h>
 #include <thread>
 #include <unistd.h>
@@ -69,19 +74,19 @@ struct LldpRepository
         {
             if (current_state.contains(index))
             {
-                bool anyChanged = false;
+                bool any_changed = false;
                 ndisc::DeviceData &device_state = current_state.at(index);
                 if (device_state.interface_name != new_device_state.interface_name)
                 {
-                    anyChanged = true;
+                    any_changed = true;
                     device_state.interface_name = new_device_state.interface_name;
                 }
                 if (device_state.ip_address != new_device_state.ip_address)
                 {
-                    anyChanged = true;
+                    any_changed = true;
                     device_state.ip_address = new_device_state.ip_address;
                 }
-                if (anyChanged)
+                if (any_changed)
                 {
                     MarkChangedLldpStateMachine(index);
                 }
@@ -132,15 +137,104 @@ class ClockHandler final : public ndisc::EventHandler
     DeviceRepository *device_repository_;
     LldpRepository *lldp_repository_;
 
-    uint16_t dump_timer_;
+    uint16_t dump_timer_ = 0;
 
-    ClockHandler(int socket_fd, ndisc::NeighbourList *nl, DeviceRepository *dr, LldpRepository *lldp) : socket_fd_(socket_fd),
-                                                                                                        neighbour_list_(nl),
-                                                                                                        device_repository_(dr),
-                                                                                                        lldp_repository_(lldp),
-                                                                                                        dump_timer_(0) {}
+    ClockHandler(int socket_fd, ndisc::NeighbourList *neighbour_list, DeviceRepository *device_repository, LldpRepository *lldp) : socket_fd_(socket_fd),
+                                                                                                                                   neighbour_list_(neighbour_list),
+                                                                                                                                   device_repository_(device_repository),
+                                                                                                                                   lldp_repository_(lldp) {}
 
 public:
+    void DumpInfo()
+    {
+        std::cout << "\033[2J";
+        std::cout << "Device data:\n";
+        std::cout << std::left
+                  << std::setw(4) << "IDX"
+                  << std::setw(24) << "Name"
+                  << std::setw(18) << "MAC"
+                  << std::setw(16) << "IP"
+                  << '\n';
+        for (const auto &[idx, device] : device_repository_->devices)
+        {
+            std::cout << std::left << std::setw(4) << device.if_index
+                      << std::setw(24) << device.interface_name.value_or("---");
+            if (device.mac_address.has_value())
+            {
+                std::cout << std::right << std::hex << std::setfill('0')
+                          << std::setw(2) << (uint16_t)(*device.mac_address)[0] << ":"
+                          << std::setw(2) << (uint16_t)(*device.mac_address)[1] << ":"
+                          << std::setw(2) << (uint16_t)(*device.mac_address)[2] << ":"
+                          << std::setw(2) << (uint16_t)(*device.mac_address)[3] << ":"
+                          << std::setw(2) << (uint16_t)(*device.mac_address)[4] << ":"
+                          << std::setw(2) << (uint16_t)(*device.mac_address)[5] << " "
+                          << std::dec << std::setfill(' ');
+            }
+            else
+            {
+                std::cout << std::setw(18) << "";
+            }
+            if (device.ip_address.has_value())
+            {
+                std::cout << std::left
+                          << (uint16_t)(*device.ip_address)[0] << '.'
+                          << (uint16_t)(*device.ip_address)[1] << '.'
+                          << (uint16_t)(*device.ip_address)[2] << '.'
+                          << (uint16_t)(*device.ip_address)[3] << ' ';
+            }
+            else
+            {
+                std::cout << std::left << std::setw(16) << "Unknown";
+            }
+            std::cout << "\n";
+        }
+        std::cout << "\n\n";
+        std::cout << "Found " << neighbour_list_->chassis_map.size() << " chassis\n";
+        std::cout << "\n\nNeighbours:\n";
+        std::cout << std::left
+                  << std::setw(36) << "Chassis"
+                  << std::setw(18) << "Port"
+                  << std::setw(16) << "IP"
+                  << std::setw(12) << "TTL"
+                  << '\n';
+
+        for (const auto &[chassis_id, port_map] : neighbour_list_->chassis_map)
+        {
+
+            std::string chassis;
+            chassis.resize(chassis_id.size() - 2);
+            std::copy(chassis_id.begin() + 1, chassis_id.end() - 1, chassis.begin());
+            std::cout << "Chassis: " << chassis << "\n";
+            for (const auto &[port_id, neighbour] : port_map)
+            {
+                std::cout << std::setw(36) << chassis;
+                std::cout << std::right << std::hex << std::setfill('0')
+                          << std::setw(2) << (uint16_t)(neighbour.port_id)[0] << ":"
+                          << std::setw(2) << (uint16_t)(neighbour.port_id)[1] << ":"
+                          << std::setw(2) << (uint16_t)(neighbour.port_id)[2] << ":"
+                          << std::setw(2) << (uint16_t)(neighbour.port_id)[3] << ":"
+                          << std::setw(2) << (uint16_t)(neighbour.port_id)[4] << ":"
+                          << std::setw(2) << (uint16_t)(neighbour.port_id)[5] << " "
+                          << std::dec << std::setfill(' ');
+                if (neighbour.ip_address.has_value())
+                {
+                    std::cout << std::left
+                              << (uint16_t)(*neighbour.ip_address)[0] << '.'
+                              << (uint16_t)(*neighbour.ip_address)[1] << '.'
+                              << (uint16_t)(*neighbour.ip_address)[2] << '.'
+                              << (uint16_t)(*neighbour.ip_address)[3] << ' ';
+                }
+                else
+                {
+                    std::cout << std::left << std::setw(16) << "Unknown";
+                }
+
+                std::cout << std::setw(12) << neighbour.time_to_live;
+                std::cout << '\n';
+            }
+        }
+    }
+
     void Call() override
     {
         uint64_t times_triggered = 0;
@@ -178,93 +272,8 @@ public:
         lldp_repository_->Tick();
         if (dump_timer_ == 0)
         {
-            dump_timer_ = 1;
-            std::cout << "\033[2J";
-            std::cout << "Device data:\n";
-            std::cout << std::left
-                      << std::setw(4) << "IDX"
-                      << std::setw(24) << "Name"
-                      << std::setw(18) << "MAC"
-                      << std::setw(16) << "IP"
-                      << '\n';
-            for (const auto &[idx, device] : device_repository_->devices)
-            {
-                std::cout << std::left << std::setw(4) << device.if_index
-                          << std::setw(24) << device.interface_name.value_or("---");
-                if (device.mac_address.has_value())
-                {
-                    std::cout << std::right << std::hex << std::setfill('0')
-                              << std::setw(2) << (uint16_t)(*device.mac_address)[0] << ":"
-                              << std::setw(2) << (uint16_t)(*device.mac_address)[1] << ":"
-                              << std::setw(2) << (uint16_t)(*device.mac_address)[2] << ":"
-                              << std::setw(2) << (uint16_t)(*device.mac_address)[3] << ":"
-                              << std::setw(2) << (uint16_t)(*device.mac_address)[4] << ":"
-                              << std::setw(2) << (uint16_t)(*device.mac_address)[5] << " "
-                              << std::dec << std::setfill(' ');
-                }
-                else
-                {
-                    std::cout << std::setw(18) << "";
-                }
-                if (device.ip_address.has_value())
-                {
-                    std::cout << std::left
-                              << (uint16_t)(*device.ip_address)[0] << '.'
-                              << (uint16_t)(*device.ip_address)[1] << '.'
-                              << (uint16_t)(*device.ip_address)[2] << '.'
-                              << (uint16_t)(*device.ip_address)[3] << ' ';
-                }
-                else
-                {
-                    std::cout << std::left << std::setw(16) << "Unknown";
-                }
-                std::cout << "\n";
-            }
-            std::cout << "\n\n";
-            std::cout << "Found " << neighbour_list_->chassis_map.size() << " chassis\n";
-            std::cout << "\n\nNeighbours:\n";
-            std::cout << std::left
-                      << std::setw(36) << "Chassis"
-                      << std::setw(18) << "Port"
-                      << std::setw(16) << "IP"
-                      << std::setw(12) << "TTL"
-                      << '\n';
-
-            for (const auto &[chassis_id, port_map] : neighbour_list_->chassis_map)
-            {
-
-                std::string chassis;
-                chassis.resize(chassis_id.size() - 2);
-                std::copy(chassis_id.begin() + 1, chassis_id.end() - 1, chassis.begin());
-                std::cout << "Chassis: " << chassis << "\n";
-                for (const auto &[port_id, neighbour] : port_map)
-                {
-                    std::cout << std::setw(36) << chassis;
-                    std::cout << std::right << std::hex << std::setfill('0')
-                              << std::setw(2) << (uint16_t)(neighbour.port_id)[0] << ":"
-                              << std::setw(2) << (uint16_t)(neighbour.port_id)[1] << ":"
-                              << std::setw(2) << (uint16_t)(neighbour.port_id)[2] << ":"
-                              << std::setw(2) << (uint16_t)(neighbour.port_id)[3] << ":"
-                              << std::setw(2) << (uint16_t)(neighbour.port_id)[4] << ":"
-                              << std::setw(2) << (uint16_t)(neighbour.port_id)[5] << " "
-                              << std::dec << std::setfill(' ');
-                    if (neighbour.ip_address.has_value())
-                    {
-                        std::cout << std::left
-                                  << (uint16_t)(*neighbour.ip_address)[0] << '.'
-                                  << (uint16_t)(*neighbour.ip_address)[1] << '.'
-                                  << (uint16_t)(*neighbour.ip_address)[2] << '.'
-                                  << (uint16_t)(*neighbour.ip_address)[3] << ' ';
-                    }
-                    else
-                    {
-                        std::cout << std::left << std::setw(16) << "Unknown";
-                    }
-
-                    std::cout << std::setw(12) << neighbour.time_to_live;
-                    std::cout << '\n';
-                }
-            }
+            dump_timer_ = 5;
+            DumpInfo();
         }
         dump_timer_--;
     }
@@ -286,7 +295,7 @@ public:
         {
             return nullptr;
         }
-        itimerspec timer_spec;
+        itimerspec timer_spec{};
         timer_spec.it_value.tv_nsec = 0;
         timer_spec.it_value.tv_sec = 1;
         timer_spec.it_interval.tv_nsec = 0;
@@ -296,63 +305,104 @@ public:
     }
 };
 
-#include <stdio.h>
-#include <execinfo.h>
-#include <signal.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-void handler(int sig)
-{
-    std::array<void *, 10> array;
-    int size;
-
-    size = backtrace(array.data(), 10);
-
-    fprintf(stderr, "Error: signal %d:\n", sig);
-    backtrace_symbols_fd(array.data(), size, STDERR_FILENO);
-    exit(1);
-}
-
 int main()
 {
-
-    signal(SIGSEGV, handler);
-
-    std::optional<ndisc::EventManager> manager_create_result = ndisc::EventManager::Create();
+    std::expected<ndisc::EventManager, int> manager_create_result = ndisc::EventManager::Create();
 
     if (!manager_create_result.has_value())
     {
-        std::cerr << "Failed to initialize Event manager.\n";
+        std::cerr << "Failed to initialize Event manager. Errno: " << manager_create_result.error() << "\n";
         return -1;
     }
     ndisc::EventManager manager = std::move(manager_create_result.value());
-    std::expected<DeviceRepository, int> repository_result = DeviceRepository::Create(manager);
+    std::cout << "Event manager initialized" << std::endl;
+    std::expected<std::unique_ptr<DeviceRepository>, int> repository_result = DeviceRepository::Create(manager);
+    std::cout << "Device repository initialized" << std::endl;
     if (!repository_result.has_value())
     {
         std::cerr << "Failed to create device repository with errno " << repository_result.error();
     }
-    DeviceRepository repository = std::move(repository_result.value());
+    std::unique_ptr<DeviceRepository> repository = std::move(repository_result.value());
+    std::cout << "Device repository initialized" << std::endl;
 
     ndisc::NeighbourList neighbour_list;
 
-    std::unique_ptr<ndisc::EthernetLldpMonitor> monitor = ndisc::EthernetLldpMonitor::Create(std::bind_front(ndisc::lldpFrameParser, std::ref(neighbour_list)));
+    std::shared_ptr<ndisc::EthernetLldpMonitor> monitor = ndisc::EthernetLldpMonitor::Create(std::bind_front(ndisc::lldpFrameParser, std::ref(neighbour_list)));
     if (monitor == nullptr)
     {
         std::cerr << "Monitor is null\n";
         return -1;
     }
-    manager.Add(*monitor);
+    std::expected<size_t, int> monitor_add_handle = manager.Add(monitor);
+    if (!monitor_add_handle.has_value())
+    {
+        std::cerr << "Failed to add Ethernet monitor, errno: " << monitor_add_handle.error() << "\n";
+        return -1;
+    }
+
+    std::cout << "Ethernet LLDP monitor initialized" << std::endl;
 
     LldpRepository lldp;
 
-    std::unique_ptr<ClockHandler> clock = ClockHandler::Create(neighbour_list, repository, lldp);
+    std::shared_ptr<ClockHandler> clock = ClockHandler::Create(neighbour_list, *repository, lldp);
     if (clock == nullptr)
     {
         std::cerr << "Clock is nullptr\n";
         return -1;
     }
-    manager.Add(*clock);
+    std::expected<size_t, int> clock_add_handle = manager.Add(clock);
+    if (!clock_add_handle.has_value())
+    {
+        std::cerr << "Failed to add Clock monitor, errno: " << clock_add_handle.error() << "\n";
+        return -1;
+    }
+
+    std::cout << "Clock handler initialized" << std::endl;
+
+    std::expected<std::unique_ptr<ndisc::data::DataTransportRepository>, int> dtr_result = ndisc::data::DataTransportRepository::Create();
+    if (!dtr_result.has_value())
+    {
+        std::cerr << "Failed to create DataTransportRepository, errno: " << dtr_result.error() << "\n";
+        return -1;
+    }
+    if (dtr_result.value() == nullptr)
+    {
+        std::cerr << "DTR for some reason nullptr\n";
+        return -1;
+    }
+    std::shared_ptr<ndisc::data::DataTransportRepository> dtr = std::move(dtr_result.value());
+
+    std::cout << "Data Transport Repository initialized" << std::endl;
+
+    std::expected<std::unique_ptr<ndisc::data::DataTransportListenSocket>, int> dtls_result = ndisc::data::DataTransportListenSocket::Create(*repository, neighbour_list, *dtr);
+    if (!dtls_result.has_value())
+    {
+        std::cerr << "Failed to create DataTransportListenSocket, errno: " << dtls_result.error() << "\n";
+        return -1;
+    }
+    if (dtls_result.value() == nullptr)
+    {
+        std::cerr << "DTLS somehow nullptr\n";
+        return -1;
+    }
+    std::shared_ptr<ndisc::data::DataTransportListenSocket> dtls = std::move(*dtls_result);
+
+    std::cout << "DTLS initialized" << std::endl;
+
+    std::expected<size_t, int> dtr_handle = manager.Add(dtr);
+    std::expected<size_t, int> dtls_handle = manager.Add(dtls);
+    if (!dtr_handle.has_value())
+    {
+        std::cerr << "Failed to add DTR, errno: " << dtr_handle.error() << "\n";
+        return -1;
+    }
+    if (!dtls_handle.has_value())
+    {
+        std::cerr << "Failed to add DTLS, errno: " << dtls_handle.error() << "\n";
+        return -1;
+    }
+
+    std::cout << "Handlers initialized" << std::endl;
 
     while (true)
     {
