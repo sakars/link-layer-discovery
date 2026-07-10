@@ -112,7 +112,7 @@ namespace ndisc::data
     class DataTransportRepository : public EventHandler
     {
         int socket_;
-        std::vector<std::shared_ptr<DataTransportSocket>> transport_sockets_{};
+        std::vector<std::shared_ptr<DataTransportSocket>> transport_sockets_;
         std::reference_wrapper<EventManager> event_manager_;
 
         DataTransportRepository(int socket, EventManager &event_manager) : socket_(socket), event_manager_(event_manager) {}

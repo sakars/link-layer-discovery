@@ -47,10 +47,7 @@ struct IpReader
     std::shared_ptr<ndisc::NetlinkSocket> ip_reader;
 
     void Tick();
-    void ExpiditeAddrDump()
-    {
-        scheduled_addr_dump = std::chrono::steady_clock::now() + 2s;
-    }
+    void ExpiditeAddrDump();
 
     void UpdateAddressList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView &packet);
 };

@@ -124,6 +124,11 @@ void IpReader::Tick()
     }
 }
 
+void IpReader::ExpiditeAddrDump()
+{
+    scheduled_addr_dump = std::chrono::steady_clock::now() + 2s;
+}
+
 void IpReader::UpdateAddressList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView &packet)
 {
     if (ip_reader_state != ReaderState::READING || !ip_sequence_number.has_value())
