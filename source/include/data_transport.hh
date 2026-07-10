@@ -132,7 +132,7 @@ namespace ndisc::data
 
         void Call() override;
 
-        int GetSocket() const;
+        int GetSocket() const override;
 
         uint32_t GetEvents() const override;
     };
