@@ -98,24 +98,15 @@ namespace ndisc::data
                             NeighbourList &neighbour_list,
                             int notify_fd);
 
-        bool EofReceived() const
-        {
-            return eof_received_;
-        }
+        bool EofReceived() const;
 
         void Call() override;
 
         void DumpData(uint16_t request_id);
 
-        int GetSocket() const override
-        {
-            return socket_;
-        }
+        int GetSocket() const override;
 
-        uint32_t GetEvents() const override
-        {
-            return EPOLLIN;
-        }
+        uint32_t GetEvents() const override;
     };
 
     class DataTransportRepository : public EventHandler
@@ -128,48 +119,22 @@ namespace ndisc::data
 
     public:
         DataTransportRepository(DataTransportRepository &) = delete;
-        DataTransportRepository(DataTransportRepository &&other) : socket_(other.socket_), transport_sockets_(std::move(other.transport_sockets_)), event_manager_(other.event_manager_)
-        {
-            other.socket_ = -1;
-        }
+        DataTransportRepository(DataTransportRepository &&other) noexcept;
 
         DataTransportRepository &operator=(DataTransportRepository &) = delete;
-        DataTransportRepository &operator=(DataTransportRepository &&other)
-        {
-            socket_ = other.socket_;
-            transport_sockets_ = std::move(other.transport_sockets_);
-            event_manager_ = other.event_manager_;
-            other.socket_ = -1;
-            return *this;
-        }
+        DataTransportRepository &operator=(DataTransportRepository &&other) noexcept;
 
-        ~DataTransportRepository() override
-        {
-            if (socket_ >= 0)
-            {
-                close(socket_);
-            }
-        }
+        ~DataTransportRepository() override;
 
-        void Add(std::shared_ptr<DataTransportSocket> dts)
-        {
-            event_manager_.get().Add(dts);
-            transport_sockets_.push_back(std::move(dts));
-        }
+        void Add(std::shared_ptr<DataTransportSocket> dts);
 
         static std::expected<std::unique_ptr<DataTransportRepository>, int> Create(EventManager &event_manager);
 
         void Call() override;
 
-        int GetSocket() const override
-        {
-            return socket_;
-        }
+        int GetSocket() const;
 
-        uint32_t GetEvents() const override
-        {
-            return EPOLLIN;
-        }
+        uint32_t GetEvents() const override;
     };
 
     class DataTransportListenSocket : public EventHandler
@@ -182,13 +147,7 @@ namespace ndisc::data
         DataTransportListenSocket(int listener_socket,
                                   DeviceRepository &device_repository,
                                   NeighbourList &neighbour_list,
-                                  DataTransportRepository &dtr) : listener_socket_(listener_socket),
-                                                                  device_repository_(device_repository),
-                                                                  neighbour_list_(neighbour_list),
-                                                                  dtr_(dtr)
-
-        {
-        }
+                                  DataTransportRepository &dtr);
 
     public:
         static std::expected<std::unique_ptr<DataTransportListenSocket>, int> Create(
@@ -245,9 +204,9 @@ namespace ndisc::data
 
         struct DeviceData
         {
-            std::vector<uint8_t> chassis{};
-            std::vector<uint8_t> port{};
-            std::optional<std::array<uint8_t, 4>> ip_address{};
+            std::vector<uint8_t> chassis;
+            std::vector<uint8_t> port;
+            std::optional<std::array<uint8_t, 4>> ip_address;
         };
 
         std::map<uint16_t, DeviceData> GetData();

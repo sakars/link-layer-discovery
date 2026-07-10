@@ -167,6 +167,11 @@ namespace ndisc::data
     {
     }
 
+    bool DataTransportSocket::EofReceived() const
+    {
+        return eof_received_;
+    }
+
     void DataTransportSocket::Call()
     {
         uint16_t request_id = 0;
@@ -288,6 +293,21 @@ namespace ndisc::data
         sendmsg(socket_, &header, 0);
     }
 
+    int DataTransportSocket::GetSocket() const
+    {
+        return socket_;
+    }
+
+    uint32_t DataTransportSocket::GetEvents() const
+    {
+        return EPOLLIN;
+    }
+
+    DataTransportRepository::DataTransportRepository(DataTransportRepository &&other) noexcept : socket_(other.socket_), transport_sockets_(std::move(other.transport_sockets_)), event_manager_(other.event_manager_)
+    {
+        other.socket_ = -1;
+    }
+
     std::expected<std::unique_ptr<DataTransportRepository>, int> DataTransportRepository::Create(EventManager &event_manager)
     {
         int socket = eventfd(0, 0);
@@ -297,6 +317,7 @@ namespace ndisc::data
         }
         return std::make_unique<DataTransportRepository>(DataTransportRepository(socket, event_manager));
     }
+
     void DataTransportRepository::Call()
     {
         uint64_t value = 0;
@@ -317,6 +338,40 @@ namespace ndisc::data
                 transport_sockets_.erase(std::next(transport_sockets_.begin(), idx));
             }
         }
+    }
+
+    DataTransportListenSocket::DataTransportListenSocket(int listener_socket,
+                                                         DeviceRepository &device_repository,
+                                                         NeighbourList &neighbour_list,
+                                                         DataTransportRepository &dtr) : listener_socket_(listener_socket),
+                                                                                         device_repository_(device_repository),
+                                                                                         neighbour_list_(neighbour_list),
+                                                                                         dtr_(dtr)
+
+    {
+    }
+
+    DataTransportRepository &DataTransportRepository::operator=(DataTransportRepository &&other) noexcept
+    {
+        socket_ = other.socket_;
+        transport_sockets_ = std::move(other.transport_sockets_);
+        event_manager_ = other.event_manager_;
+        other.socket_ = -1;
+        return *this;
+    }
+
+    DataTransportRepository::~DataTransportRepository()
+    {
+        if (socket_ >= 0)
+        {
+            close(socket_);
+        }
+    }
+
+    void DataTransportRepository::Add(std::shared_ptr<DataTransportSocket> dts)
+    {
+        event_manager_.get().Add(dts);
+        transport_sockets_.push_back(std::move(dts));
     }
 
     std::expected<std::unique_ptr<DataTransportListenSocket>, int> DataTransportListenSocket::Create(
@@ -345,6 +400,15 @@ namespace ndisc::data
         }
         std::shared_ptr<DataTransportSocket> dts = std::make_shared<DataTransportSocket>(DataTransportSocket(accept_socket, device_repository_, neighbour_list_, dtr_.get().GetSocket()));
         dtr_.get().Add(std::move(dts));
+    }
+
+    int DataTransportRepository::GetSocket() const
+    {
+        return socket_;
+    }
+    uint32_t DataTransportRepository::GetEvents() const
+    {
+        return EPOLLIN;
     }
 
     std::expected<DataTransportClient, int> DataTransportClient::Create()
