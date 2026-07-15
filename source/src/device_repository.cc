@@ -21,7 +21,7 @@ namespace ndisc
         }
     }
 
-    void DeviceReader::ExpiditeLinkDump()
+    void DeviceReader::ExpediteLinkDump()
     {
         scheduled_link_dump = std::chrono::steady_clock::now() + 2s;
     }
@@ -98,7 +98,6 @@ namespace ndisc
                         }
                     }
                 }
-                // expiditeAddrDump();
                 devices_updated = true;
             }
         }
@@ -125,7 +124,7 @@ namespace ndisc
         }
     }
 
-    void IpReader::ExpiditeAddrDump()
+    void IpReader::ExpediteAddrDump()
     {
         scheduled_addr_dump = std::chrono::steady_clock::now() + 2s;
     }
@@ -175,7 +174,7 @@ namespace ndisc
         {
             std::cerr << "Failed to get address dump. " << error_view->error->error << " Retrying...\n";
             ip_reader_state = ReaderState::ERRORED;
-            ExpiditeAddrDump();
+            ExpediteAddrDump();
         }
     }
 
@@ -239,7 +238,7 @@ namespace ndisc
     {
         if (std::get_if<ndisc::LinkView>(&packet) != nullptr || std::get_if<ndisc::AddrView>(&packet) != nullptr)
         {
-            device_reader.ExpiditeLinkDump();
+            device_reader.ExpediteLinkDump();
         }
     }
 
@@ -249,7 +248,7 @@ namespace ndisc
         if (device_reader.devices_updated)
         {
             device_reader.devices_updated = false;
-            ip_reader.ExpiditeAddrDump();
+            ip_reader.ExpediteAddrDump();
         }
     }
 
