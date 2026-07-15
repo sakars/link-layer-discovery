@@ -38,8 +38,6 @@ namespace ndisc
         LLDPDataUnit data_unit;
 
         std::vector<uint8_t> ToFrameBuffer() const;
-
-        static std::optional<LLDPEthernetFrame> FromSpan(std::span<const uint8_t>);
     };
 
     // LLDPDUTypeLengthValue createChassisIdTLV();

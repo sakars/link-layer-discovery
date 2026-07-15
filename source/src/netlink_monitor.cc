@@ -207,7 +207,6 @@ namespace ndisc
         int socket_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
         if (socket_fd < 0)
         {
-            // TODO: add error report
             std::cerr << "Failed to make socket\n";
             return std::unexpected(errno);
         }
