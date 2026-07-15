@@ -11,65 +11,69 @@
 
 using namespace std::chrono_literals;
 
-std::function<void(std::span<uint8_t>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK);
-
-enum class ReaderState : uint8_t
-{
-    IDLE,
-    READING,
-    ERRORED,
-};
-
-struct DeviceReader
+namespace ndisc
 {
 
-    std::shared_ptr<ndisc::NetlinkSocket> device_reader;
-    std::optional<unsigned int> device_sequence_number = std::nullopt;
-    ReaderState device_reader_state = ReaderState::IDLE;
-    std::chrono::time_point<std::chrono::steady_clock> scheduled_link_dump = std::chrono::steady_clock::now();
+    std::function<void(std::span<uint8_t>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK);
 
-    bool devices_updated = false;
+    enum class ReaderState : uint8_t
+    {
+        IDLE,
+        READING,
+        ERRORED,
+    };
 
-    DeviceReader() {}
+    struct DeviceReader
+    {
 
-    void Tick();
+        std::shared_ptr<ndisc::NetlinkSocket> device_reader;
+        std::optional<unsigned int> device_sequence_number = std::nullopt;
+        ReaderState device_reader_state = ReaderState::IDLE;
+        std::chrono::time_point<std::chrono::steady_clock> scheduled_link_dump = std::chrono::steady_clock::now();
 
-    void ExpiditeLinkDump();
+        bool devices_updated = false;
 
-    void UpdateDeviceList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView packet);
-};
+        DeviceReader() {}
 
-struct IpReader
-{
-    ReaderState ip_reader_state = ReaderState::IDLE;
-    std::optional<unsigned int> ip_sequence_number = std::nullopt;
-    std::chrono::time_point<std::chrono::steady_clock> scheduled_addr_dump = std::chrono::steady_clock::now() + 2min;
-    std::shared_ptr<ndisc::NetlinkSocket> ip_reader;
+        void Tick();
 
-    void Tick();
-    void ExpiditeAddrDump();
+        void ExpiditeLinkDump();
 
-    void UpdateAddressList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView &packet);
-};
+        void UpdateDeviceList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView packet);
+    };
 
-struct DeviceRepository
-{
+    struct IpReader
+    {
+        ReaderState ip_reader_state = ReaderState::IDLE;
+        std::optional<unsigned int> ip_sequence_number = std::nullopt;
+        std::chrono::time_point<std::chrono::steady_clock> scheduled_addr_dump = std::chrono::steady_clock::now() + 2min;
+        std::shared_ptr<ndisc::NetlinkSocket> ip_reader;
 
-    std::shared_ptr<ndisc::NetlinkSocket> monitor;
+        void Tick();
+        void ExpiditeAddrDump();
 
-    DeviceReader device_reader;
-    IpReader ip_reader;
-    std::map<unsigned int, ndisc::DeviceData> devices;
+        void UpdateAddressList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView &packet);
+    };
 
-    static std::expected<std::unique_ptr<DeviceRepository>, int> Create(ndisc::EventManager &manager);
+    struct DeviceRepository
+    {
 
-    void Tick();
+        std::shared_ptr<ndisc::NetlinkSocket> monitor;
 
-    void HandleMonitorPackets(ndisc::NetlinkPacketView packet);
+        DeviceReader device_reader;
+        IpReader ip_reader;
+        std::map<unsigned int, ndisc::DeviceData> devices;
 
-    void UpdateDeviceList(ndisc::NetlinkPacketView packet);
+        static std::expected<std::unique_ptr<DeviceRepository>, int> Create(ndisc::EventManager &manager);
 
-    void UpdateAddressList(ndisc::NetlinkPacketView &packet);
-};
+        void Tick();
 
+        void HandleMonitorPackets(ndisc::NetlinkPacketView packet);
+
+        void UpdateDeviceList(ndisc::NetlinkPacketView packet);
+
+        void UpdateAddressList(ndisc::NetlinkPacketView &packet);
+    };
+
+} // namespace ndisc
 #endif // DEVICE_REPOSITORY_HH

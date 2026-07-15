@@ -42,69 +42,9 @@ namespace ndisc
         {
         }
 
-        static void LoadBatch(int socket_fd, std::vector<uint8_t> &data_buffer)
-        {
-            if (socket_fd < 0)
-            {
-                data_buffer.clear();
-                std::cerr << "Unable to load batch: socket not valid\n";
-                return;
-            }
-            sockaddr_nl source_address{};
-            uint8_t tmp_data = 0;
-            iovec buffer_data{
-                .iov_base = &tmp_data,
-                .iov_len = 1,
-            };
-            msghdr header_buffer{
-                .msg_name = &source_address,
-                .msg_namelen = sizeof(source_address),
-                .msg_iov = &buffer_data,
-                .msg_iovlen = 1,
-                .msg_control = nullptr,
-                .msg_controllen = 0,
-                .msg_flags = 0,
-            };
+        static void LoadBatch(int socket_fd, std::vector<uint8_t> &data_buffer);
 
-            const long peek_data_length = recvmsg(socket_fd, &header_buffer, MSG_PEEK | MSG_TRUNC);
-            if (peek_data_length <= 0)
-            {
-                data_buffer.clear();
-                return;
-            }
-
-            data_buffer = std::vector<uint8_t>(peek_data_length, 0);
-
-            buffer_data.iov_base = data_buffer.data();
-            buffer_data.iov_len = peek_data_length;
-
-            const long data_length = recvmsg(socket_fd, &header_buffer, 0);
-            if (data_length != peek_data_length)
-            {
-                data_buffer.clear();
-                return;
-            }
-            if (source_address.nl_pid != KERNEL_PID)
-            {
-                data_buffer.clear();
-                return;
-            }
-            data_buffer.resize(data_length);
-        }
-
-        static std::optional<std::span<uint8_t>> TryLoadFromSpan(std::span<uint8_t> &remaining_data)
-        {
-            size_t buffer_size = remaining_data.size();
-            const nlmsghdr *header = reinterpret_cast<const nlmsghdr *>(remaining_data.data());
-            if (NLMSG_OK(header, buffer_size))
-            {
-                size_t next_message_size = NLMSG_ALIGN(header->nlmsg_len);
-                const std::span<uint8_t> message_span = remaining_data.subspan(0, next_message_size);
-                remaining_data = remaining_data.subspan(next_message_size);
-                return message_span;
-            }
-            return std::nullopt;
-        }
+        static std::optional<std::span<uint8_t>> TryLoadFromSpan(std::span<uint8_t> &remaining_data);
 
     public:
         static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(std::function<void(std::span<uint8_t>)> callback, uint32_t multicast_groups);
@@ -250,79 +190,19 @@ namespace ndisc
         uint16_t fast_forward_counter = 0;
         bool trigger_ready = false;
 
-        void EndTransmission()
-        {
-            if (lldp_sender.has_value() && mac_address.has_value())
-            {
-                lldp_sender->SendLldp(if_index, *mac_address, ip_address, 0);
-            }
-        }
+        void EndTransmission();
 
-        void TryTransmit()
-        {
-            if (trigger_ready && transmit_credits > 0 && mac_address.has_value())
-            {
-                trigger_ready = false;
-                transmit_credits--;
-                if (lldp_sender.has_value())
-                {
-                    std::cout << "Transmitting lldp via device " << if_index << "\n";
-                    lldp_sender->SendLldp(if_index, *mac_address, ip_address, TARGET_TTL);
-                }
-            }
-        }
+        void TryTransmit();
 
-        void TriggerTransmission()
-        {
-            if (fast_forward_counter > 0)
-            {
-                transmit_timer = MESSAGE_FAST_INTERVAL;
-            }
-            else
-            {
-                transmit_timer = MESSAGE_TRANSMIT_INTERVAL;
-            }
-            trigger_ready = true;
-            TryTransmit();
-        }
-        void TimerExpired()
-        {
-            if (fast_forward_counter > 0)
-            {
-                fast_forward_counter--;
-            }
-            TriggerTransmission();
-        }
-        void NewNeighbour()
-        {
-            if (fast_forward_counter == 0)
-            {
-                fast_forward_counter = FAST_TRANSMIT_AMOUNT;
-            }
-            TimerExpired();
-        }
+        void TriggerTransmission();
 
-        void LocalChangeDetected()
-        {
-            TriggerTransmission();
-        }
+        void TimerExpired();
 
-        void Tick()
-        {
-            if (transmit_credits < MAX_TRANSMIT_CREDITS)
-            {
-                transmit_credits += 1;
-            }
-            if (transmit_timer > 0)
-            {
-                transmit_timer--;
-            }
-            if (transmit_timer == 0)
-            {
-                TimerExpired();
-            }
-            TryTransmit();
-        }
+        void NewNeighbour();
+
+        void LocalChangeDetected();
+
+        void Tick();
     };
 
 } // namespace ndisc

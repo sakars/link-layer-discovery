@@ -59,4 +59,62 @@ namespace ndisc
         std::copy(entry.chassis_id.begin(), entry.chassis_id.end(), chassis.begin());
         neighbour_list.chassis_map[entry.chassis_id][entry.port_id] = std::move(entry);
     }
+
+    std::unique_ptr<EthernetLldpMonitor> EthernetLldpMonitor::Create(Callback callback)
+    {
+        int socket_fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_LLDP));
+        if (socket_fd < 0)
+        {
+            std::cerr << "Monitor errno: " << errno << "\n";
+            return nullptr;
+        }
+        return std::make_unique<EthernetLldpMonitor>(EthernetLldpMonitor(socket_fd, std::move(callback)));
+    }
+
+    int EthernetLldpMonitor::GetSocket() const
+    {
+        return socket_fd_;
+    }
+
+    void EthernetLldpMonitor::Call()
+    {
+        sockaddr_ll link_layer_address{};
+        iovec message_iovec{};
+        message_iovec.iov_base = message_buffer_.data();
+        message_iovec.iov_len = message_buffer_.size();
+        msghdr message_header{};
+        message_header.msg_name = &link_layer_address;
+        message_header.msg_namelen = sizeof(link_layer_address);
+        message_header.msg_iov = &message_iovec;
+        message_header.msg_iovlen = 1;
+        message_header.msg_control = nullptr;
+        message_header.msg_controllen = 0;
+        message_header.msg_flags = 0;
+
+        ssize_t peek_packet_length = recvmsg(socket_fd_, &message_header, MSG_PEEK | MSG_TRUNC);
+
+        if (peek_packet_length > static_cast<ssize_t>(message_buffer_.size()))
+        {
+            message_buffer_.resize(peek_packet_length > MAX_FRAME_BUFFER_SIZE ? MAX_FRAME_BUFFER_SIZE : peek_packet_length);
+        }
+
+        message_iovec.iov_base = message_buffer_.data();
+        message_iovec.iov_len = message_buffer_.size();
+
+        ssize_t received_length = recvmsg(socket_fd_, &message_header, 0);
+
+        if (received_length == peek_packet_length)
+        {
+            callback_(link_layer_address, std::span<const uint8_t>(message_buffer_.begin(), received_length));
+        }
+        else
+        {
+            std::cerr << "Failed to read LLDP frame\n";
+        }
+    }
+
+    uint32_t EthernetLldpMonitor::GetEvents() const
+    {
+        return EPOLLIN;
+    }
 } // namespace ndisc
