@@ -8,6 +8,7 @@ libfiles += lldp_monitor
 libfiles += lldp_packet 
 libfiles += lldp_repository
 libfiles += netlink_monitor 
+libfiles += owned_file_descriptor
 
 object_files = $(addprefix ../out/,$(addsuffix .o, $(libfiles)))
 input_files = $(addprefix src/,$(addsuffix .cc, $(libfiles)))
