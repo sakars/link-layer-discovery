@@ -35,8 +35,8 @@ namespace ndisc
 
     class EventManager
     {
-        std::map<size_t, std::weak_ptr<EventHandler>> registered_events_;
-        size_t event_id_counter_ = 1;
+        std::map<uint64_t, std::weak_ptr<EventHandler>> registered_events_;
+        uint64_t event_id_counter_ = 1;
         int epfd_ = -1;
 
         EventManager(int epfd) : epfd_(epfd)

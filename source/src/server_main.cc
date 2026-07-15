@@ -47,7 +47,7 @@ int main()
         std::cerr << "Monitor is null\n";
         return -1;
     }
-    std::expected<size_t, int> monitor_add_handle = manager.Add(monitor);
+    std::expected<uint64_t, int> monitor_add_handle = manager.Add(monitor);
     if (!monitor_add_handle.has_value())
     {
         std::cerr << "Failed to add Ethernet monitor, errno: " << monitor_add_handle.error() << "\n";
@@ -64,7 +64,7 @@ int main()
         std::cerr << "Clock is nullptr\n";
         return -1;
     }
-    std::expected<size_t, int> clock_add_handle = manager.Add(clock);
+    std::expected<uint64_t, int> clock_add_handle = manager.Add(clock);
     if (!clock_add_handle.has_value())
     {
         std::cerr << "Failed to add Clock monitor, errno: " << clock_add_handle.error() << "\n";
@@ -103,8 +103,8 @@ int main()
 
     std::cout << "DTLS initialized" << "\n";
 
-    std::expected<size_t, int> dtr_handle = manager.Add(dtr);
-    std::expected<size_t, int> dtls_handle = manager.Add(dtls);
+    std::expected<uint64_t, int> dtr_handle = manager.Add(dtr);
+    std::expected<uint64_t, int> dtls_handle = manager.Add(dtls);
     if (!dtr_handle.has_value())
     {
         std::cerr << "Failed to add DTR, errno: " << dtr_handle.error() << "\n";
