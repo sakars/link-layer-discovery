@@ -67,7 +67,6 @@ namespace ndisc
 
     std::optional<LLDPDataUnit> LLDPDataUnit::FromSpan(std::span<const uint8_t> data_unit_bytes)
     {
-        // TODO: literals need ID const vars
         const std::optional<LLDPDUTypeLengthValue> chassis_id_tlv = LLDPDUTypeLengthValue::FromSpan(data_unit_bytes);
         if (!chassis_id_tlv.has_value())
         {
@@ -125,16 +124,4 @@ namespace ndisc
         return buffer;
     }
 
-    std::optional<LLDPEthernetFrame> LLDPEthernetFrame::FromSpan(std::span<const uint8_t> frame)
-    {
-        LLDPEthernetFrame generated_frame{};
-        if (frame.size() < sizeof(generated_frame.header))
-        {
-            return std::nullopt;
-        }
-        std::span<uint8_t> frame_contents = std::span<uint8_t>(reinterpret_cast<uint8_t *>(&(generated_frame.header)), sizeof(generated_frame.header));
-        std::copy(frame.begin(), frame.begin() + sizeof(ether_header), frame_contents.begin());
-        // TODO: Continue
-        return std::nullopt;
-    }
 } // namespace ndisc
