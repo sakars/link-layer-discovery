@@ -37,7 +37,7 @@ namespace ndisc
 
         void Tick();
 
-        void ExpiditeLinkDump();
+        void ExpediteLinkDump();
 
         void UpdateDeviceList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView packet);
     };
@@ -50,7 +50,7 @@ namespace ndisc
         std::shared_ptr<ndisc::NetlinkSocket> ip_reader;
 
         void Tick();
-        void ExpiditeAddrDump();
+        void ExpediteAddrDump();
 
         void UpdateAddressList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView &packet);
     };
