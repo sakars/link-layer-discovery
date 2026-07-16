@@ -15,7 +15,7 @@ input_files = $(addprefix src/,$(addsuffix .cc, $(libfiles)))
 
 test_files  = inplace_vector
 
-test_executables = $(addprefix ../test/test_, $(test_files))
+test_executables = $(addprefix ../test_executables/test_, $(test_files))
 
 WARNINGS = -Wall -Wextra -Werror 
 
@@ -33,7 +33,7 @@ all: ../out/ndisc ../out/ndisc_client $(test_executables)
 $(object_files): ../out/%.o : src/%.cc include/*.hh
 	$(GCC) -c $< -o $@
 
-$(test_executables): ../test/% : test/%.cc include/*.hh $(object_files)
+$(test_executables): ../test_executables/% : test/%.cc include/*.hh $(object_files)
 	$(GCC) $(object_files) $< -o $@
 
 clean:
