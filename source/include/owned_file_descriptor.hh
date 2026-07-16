@@ -21,6 +21,8 @@ namespace ndisc
         int Get() const { return fd_; }
 
         const int &operator*() const { return fd_; }
+
+        bool IsValid() const { return fd_ >= 0; }
     };
 
 } // namespace ndisc

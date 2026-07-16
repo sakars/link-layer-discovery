@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include "owned_file_descriptor.hh"
+
 static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 9), "epoll_ctl bug https://man7.org/linux/man-pages/man2/epoll_ctl.2.html#BUGS");
 
 static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 27), "epoll_create1 missing");
@@ -37,29 +39,13 @@ namespace ndisc
     {
         std::map<uint64_t, std::weak_ptr<EventHandler>> registered_events_;
         uint64_t event_id_counter_ = 1;
-        int epfd_ = -1;
+        OwnedFileDescriptor epfd_;
 
-        EventManager(int epfd) : epfd_(epfd)
+        EventManager(OwnedFileDescriptor &&epfd) : epfd_(std::move(epfd))
         {
         }
 
     public:
-        EventManager(const EventManager &) = delete;
-
-        EventManager(EventManager &&other) noexcept;
-
-        EventManager &operator=(const EventManager &) = delete;
-
-        EventManager &operator=(EventManager &&other) noexcept;
-
-        ~EventManager()
-        {
-            if (epfd_ >= 0)
-            {
-                close(epfd_);
-            }
-        }
-
         static std::expected<EventManager, int> Create();
 
         std::expected<size_t, int> Add(const std::shared_ptr<EventHandler> &handler);
