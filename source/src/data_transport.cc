@@ -1,6 +1,8 @@
 
 #include "data_transport.hh"
 
+#include <cstring>
+
 namespace ndisc::data
 {
 
@@ -12,19 +14,19 @@ namespace ndisc::data
 
     DataTransportPacket::DataTransportPacket(uint16_t rid, IpEntry &entry) : request_id(rid), type(IP_ENTRY)
     {
-        std::span<uint8_t> entry_data_span = std::span<uint8_t>(reinterpret_cast<uint8_t *>(&entry), sizeof(IpEntry));
+        std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(IpEntry));
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
     }
 
     DataTransportPacket::DataTransportPacket(uint16_t rid, NeighbourEntry &entry) : request_id(rid), type(NEIGHBOUR_ENTRY)
     {
-        std::span<uint8_t> entry_data_span = std::span<uint8_t>(reinterpret_cast<uint8_t *>(&entry), sizeof(NeighbourEntry));
+        std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(NeighbourEntry));
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
     }
 
     DataTransportPacket::DataTransportPacket(uint16_t rid, ChassisEntry &entry) : request_id(rid), type(CHASSIS_ENTRY)
     {
-        std::span<uint8_t> entry_data_span = std::span<uint8_t>(reinterpret_cast<uint8_t *>(&entry), sizeof(ChassisEntry));
+        std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(ChassisEntry));
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
     }
 
@@ -224,7 +226,7 @@ namespace ndisc::data
                 std::cerr << "Chassis ID has invalid size\n";
                 continue;
             }
-            std::copy(chassis_id.begin(), chassis_id.end(), entry.name.begin());
+            std::memcpy(entry.name.begin(), chassis_id.data(), chassis_id.size());
             entry.name_length = chassis_id.size();
             std::cout << "Chassis length: " << chassis_id.size();
             DataTransportPacket dtp = DataTransportPacket(request_id, entry);
@@ -255,7 +257,8 @@ namespace ndisc::data
                     std::cerr << "Port size larger than can deliver, not broadcasted over to client\n";
                 }
                 entry.port_size = port_id.size();
-                std::copy(port_id.begin(), port_id.end(), entry.neighbour_port.begin());
+                // std::copy(port_id.begin(), port_id.end(), entry.neighbour_port.begin());
+                std::memcpy(entry.neighbour_port.data(), port_id.data(), port_id.size());
                 dtp = DataTransportPacket(request_id, entry);
                 sendmsg(*socket_, &header, 0);
                 if (neighbour.ip_address.has_value())
@@ -395,7 +398,7 @@ namespace ndisc::data
 
     std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> DataTransportClient::GetData()
     {
-        std::map<uint16_t, std::vector<uint8_t>> chassis_map{};
+        std::map<uint16_t, std::vector<std::byte>> chassis_map{};
         std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> map{};
         std::cout << "Sending request " << request_id_ << "\n";
         sendRequest(*socket_, request_id_);
@@ -419,12 +422,12 @@ namespace ndisc::data
             }
             if (ChassisEntry *chassis = std::get_if<ChassisEntry>(&*packet))
             {
-                chassis_map[chassis->chassis_id] = std::vector<uint8_t>(chassis->name.begin(), std::next(chassis->name.begin(), chassis->name_length));
+                chassis_map[chassis->chassis_id] = std::vector<std::byte>(chassis->name.begin(), std::next(chassis->name.begin(), chassis->name_length));
             }
             else if (NeighbourEntry *neighbour = std::get_if<NeighbourEntry>(&*packet))
             {
-                std::vector<uint8_t> &chassis = chassis_map[neighbour->chassis_id];
-                std::vector<uint8_t> port = std::vector<uint8_t>(neighbour->neighbour_port.begin(), std::next(neighbour->neighbour_port.begin(), neighbour->port_size));
+                std::vector<std::byte> &chassis = chassis_map[neighbour->chassis_id];
+                std::vector<std::byte> port = std::vector<std::byte>(neighbour->neighbour_port.begin(), std::next(neighbour->neighbour_port.begin(), neighbour->port_size));
                 map[neighbour->neighbour_id] = DeviceData{
                     .chassis = chassis,
                     .port = port,

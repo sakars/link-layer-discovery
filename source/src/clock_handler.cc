@@ -1,5 +1,6 @@
 #include "clock_handler.hh"
 
+#include <cstring>
 #include <sys/timerfd.h>
 
 namespace ndisc
@@ -62,8 +63,9 @@ namespace ndisc
 
             std::string chassis;
             chassis.resize(chassis_id.size() - 2);
-            std::copy(chassis_id.begin() + 1, chassis_id.end() - 1, chassis.begin());
-            std::cout << "Chassis: " << chassis << "\n";
+            std::memcpy(chassis.data(), chassis_id.data(), chassis_id.size() - 2);
+            std::cout
+                << "Chassis: " << chassis << "\n";
             for (const auto &[port_id, neighbour] : port_map)
             {
                 std::cout << std::setw(36) << chassis;
@@ -102,7 +104,7 @@ namespace ndisc
         {
             return;
         }
-        std::vector<std::tuple<std::vector<uint8_t>, std::vector<uint8_t>>> timed_out_entries{};
+        std::vector<std::tuple<std::vector<std::byte>, std::vector<std::byte>>> timed_out_entries{};
         for (auto &[chassis, port_map] : neighbour_list_->chassis_map)
         {
             for (auto &[port, entry] : port_map)

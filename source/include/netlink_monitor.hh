@@ -23,21 +23,21 @@ namespace ndisc
     {
     private:
         OwnedFileDescriptor socket_fd_;
-        std::vector<uint8_t> data_buffer_;
-        std::span<uint8_t> remaining_data_;
+        std::vector<std::byte> data_buffer_;
+        std::span<std::byte> remaining_data_;
         int sequence_number_ = 1;
-        std::function<void(std::span<uint8_t>)> callback_;
+        std::function<void(std::span<std::byte>)> callback_;
 
-        NetlinkSocket(OwnedFileDescriptor &&socket_fd, std::function<void(std::span<uint8_t>)> callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
+        NetlinkSocket(OwnedFileDescriptor &&socket_fd, std::function<void(std::span<std::byte>)> callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
         {
         }
 
-        static void LoadBatch(int socket_fd, std::vector<uint8_t> &data_buffer);
+        static void LoadBatch(int socket_fd, std::vector<std::byte> &data_buffer);
 
-        static std::optional<std::span<uint8_t>> TryLoadFromSpan(std::span<uint8_t> &remaining_data);
+        static std::optional<std::span<std::byte>> TryLoadFromSpan(std::span<std::byte> &remaining_data);
 
     public:
-        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(std::function<void(std::span<uint8_t>)> callback, uint32_t multicast_groups);
+        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(std::function<void(std::span<std::byte>)> callback, uint32_t multicast_groups);
 
         int GetSocket() const override
         {
@@ -66,12 +66,12 @@ namespace ndisc
     struct TLVView
     {
         rtattr *attribute_header;
-        std::span<uint8_t> value;
+        std::span<std::byte> value;
     };
 
     struct MessageContentView
     {
-        std::span<uint8_t> content;
+        std::span<std::byte> content;
     };
 
     struct MessageView
@@ -121,7 +121,7 @@ namespace ndisc
     using NetlinkPacketView =
         std::variant<MessageView, LinkView, AddrView, ErrorView, DoneView>;
 
-    NetlinkPacketView packetViewParser(std::span<uint8_t> packet);
+    NetlinkPacketView packetViewParser(std::span<std::byte> packet);
 
     constexpr uint16_t MAX_TRANSMIT_CREDITS = 5;
     constexpr uint16_t FAST_TRANSMIT_AMOUNT = 4;
@@ -139,13 +139,13 @@ namespace ndisc
     public:
         static std::optional<LldpSender> Create();
 
-        void SendLldp(unsigned int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const;
+        void SendLldp(unsigned int interface, const std::array<std::byte, ETH_ALEN> &mac, const std::optional<std::array<std::byte, sizeof(in_addr)>> &ip_address, uint16_t ttl) const;
     };
 
     struct DeviceData
     {
-        std::optional<std::array<uint8_t, ETH_ALEN>> mac_address = std::nullopt;
-        std::optional<std::array<uint8_t, sizeof(in_addr)>> ip_address = std::nullopt;
+        std::optional<std::array<std::byte, ETH_ALEN>> mac_address = std::nullopt;
+        std::optional<std::array<std::byte, sizeof(in_addr)>> ip_address = std::nullopt;
         std::optional<std::string> interface_name = std::nullopt;
         std::optional<LldpSender> lldp_sender = std::nullopt;
         unsigned int if_index;

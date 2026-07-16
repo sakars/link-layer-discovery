@@ -1,6 +1,7 @@
 
 #include <bitset>
 #include <chrono>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -25,55 +26,90 @@ namespace ndisc
     constexpr std::chrono::milliseconds NETLINK_DELAY = 500ms;
     constexpr unsigned int NETLINK_DUMP_READ_ATTEMPTS = 5;
 
-    NetlinkPacketView packetViewParser(std::span<uint8_t> packet)
+    static std::vector<TLVView> parseTlvs(std::span<std::byte> packet, size_t message_payload_size)
+    {
+        const long tlv_offset = RTA_ALIGN(NLMSG_LENGTH(message_payload_size));
+        const nlmsghdr *const header = reinterpret_cast<nlmsghdr *>(packet.data());
+
+        std::vector<TLVView> attributes;
+
+        size_t remaining_bytes = NLMSG_PAYLOAD(header, message_payload_size);
+        rtattr *start = reinterpret_cast<rtattr *>(std::next(packet.begin(), tlv_offset).base());
+        for (rtattr *rta = start;
+             RTA_OK(rta, remaining_bytes);
+             rta = RTA_NEXT(rta, remaining_bytes))
+        {
+            attributes.emplace_back(
+                TLVView{
+                    .attribute_header = rta,
+                    .value = std::span<std::byte>(reinterpret_cast<std::byte *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
+                });
+        }
+        return attributes;
+    }
+
+    static LinkView parseLinkViewPacket(std::span<std::byte> packet)
+    {
+        ifinfomsg *interface_data = reinterpret_cast<ifinfomsg *>(NLMSG_DATA(packet.data()));
+        std::vector<TLVView> attributes = parseTlvs(packet, sizeof(ifinfomsg));
+        return LinkView{
+            .header = reinterpret_cast<nlmsghdr *>(packet.data()),
+            .content = LinkContentView{
+                .interface_info = interface_data,
+                .attributes = std::move(attributes),
+            },
+        };
+    }
+
+    static AddrView parseAddrViewPacket(std::span<std::byte> packet)
+    {
+        ifaddrmsg *address_info = reinterpret_cast<ifaddrmsg *>(NLMSG_DATA(packet.data()));
+        std::vector<TLVView> attributes = parseTlvs(packet, sizeof(ifaddrmsg));
+        return AddrView{
+            .header = reinterpret_cast<nlmsghdr *>(packet.data()),
+            .content = AddrContentView{
+                .address_info = address_info,
+                .attributes = std::move(attributes),
+            },
+        };
+    }
+
+    static ErrorView parseErrorViewPacket(std::span<std::byte> packet)
+    {
+        nlmsghdr *header = reinterpret_cast<nlmsghdr *>(packet.data());
+        nlmsgerr *error_payload = reinterpret_cast<nlmsgerr *>(NLMSG_DATA(packet.data()));
+        std::optional<MessageContentView> original_message = std::nullopt;
+        size_t payload_size = sizeof(nlmsgerr);
+        if ((header->nlmsg_flags & NLM_F_CAPPED) == 0)
+        {
+            std::byte *data = reinterpret_cast<std::byte *>(NLMSG_DATA(&(error_payload->msg)));
+            size_t original_message_payload_size = NLMSG_PAYLOAD(&(error_payload->msg), 0);
+            std::span<std::byte> original_message_span = std::span<std::byte>(data, original_message_payload_size);
+            original_message = MessageContentView{
+                .content = original_message_span,
+            };
+            payload_size = NLMSG_ALIGN(sizeof(nlmsgerr)) + original_message_payload_size;
+        }
+        std::vector<TLVView> attributes = parseTlvs(packet, payload_size);
+        return ErrorView{
+            .header = header,
+            .error = error_payload,
+            .original_content = original_message,
+            .attributes = std::move(attributes),
+        };
+    }
+
+    NetlinkPacketView packetViewParser(std::span<std::byte> packet)
     {
         nlmsghdr *header = reinterpret_cast<nlmsghdr *>(packet.data());
         if (header->nlmsg_type == RTM_GETLINK || header->nlmsg_type == RTM_NEWLINK || header->nlmsg_type == RTM_DELLINK)
         {
-            ifinfomsg *interface_data = reinterpret_cast<ifinfomsg *>(NLMSG_DATA(header));
-            size_t remaining_bytes = IFLA_PAYLOAD(header);
-            std::vector<TLVView> attributes;
-            for (rtattr *rta = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(ifinfomsg))));
-                 RTA_OK(rta, remaining_bytes);
-                 rta = RTA_NEXT(rta, remaining_bytes))
-            {
-                attributes.emplace_back(
-                    TLVView{
-                        .attribute_header = rta,
-                        .value = std::span<uint8_t>(reinterpret_cast<uint8_t *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
-                    });
-            }
-            return LinkView{
-                .header = header,
-                .content = LinkContentView{
-                    .interface_info = interface_data,
-                    .attributes = std::move(attributes),
-                },
-            };
+            return parseLinkViewPacket(packet);
         }
 
         if (header->nlmsg_type == RTM_GETADDR || header->nlmsg_type == RTM_NEWADDR || header->nlmsg_type == RTM_DELADDR)
         {
-            ifaddrmsg *address_info = reinterpret_cast<ifaddrmsg *>(NLMSG_DATA(header));
-            size_t remaining_bytes = IFA_PAYLOAD(header);
-            std::vector<TLVView> attributes;
-            for (rtattr *rta = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(ifaddrmsg))));
-                 RTA_OK(rta, remaining_bytes);
-                 rta = RTA_NEXT(rta, remaining_bytes))
-            {
-                attributes.emplace_back(
-                    TLVView{
-                        .attribute_header = rta,
-                        .value = std::span<uint8_t>(reinterpret_cast<uint8_t *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
-                    });
-            }
-            return AddrView{
-                .header = header,
-                .content = AddrContentView{
-                    .address_info = address_info,
-                    .attributes = std::move(attributes),
-                },
-            };
+            return parseAddrViewPacket(packet);
         }
 
         if (header->nlmsg_type == NLMSG_DONE)
@@ -87,42 +123,12 @@ namespace ndisc
 
         if (header->nlmsg_type == NLMSG_ERROR)
         {
-            nlmsgerr *error_payload = reinterpret_cast<nlmsgerr *>(NLMSG_DATA(header));
-            size_t remaining_bytes = NLMSG_PAYLOAD(header, sizeof(nlmsgerr));
-            std::optional<MessageContentView> original_message = std::nullopt;
-            rtattr *attribute_base = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(nlmsgerr))));
-            if ((header->nlmsg_flags & NLM_F_CAPPED) == 0)
-            {
-                uint8_t *data = reinterpret_cast<uint8_t *>(NLMSG_DATA(&(error_payload->msg)));
-                size_t original_message_payload_size = NLMSG_PAYLOAD(&(error_payload->msg), 0);
-                std::span<uint8_t> original_message_span = std::span<uint8_t>(data, original_message_payload_size);
-                original_message = MessageContentView{
-                    .content = original_message_span,
-                };
-                remaining_bytes = NLMSG_PAYLOAD(header, NLMSG_ALIGN(sizeof(nlmsgerr)) + original_message_payload_size);
-                attribute_base = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(nlmsgerr)) + original_message_payload_size));
-            }
-            std::vector<TLVView> attributes;
-            for (rtattr *rta = attribute_base; RTA_OK(rta, remaining_bytes); rta = RTA_NEXT(rta, remaining_bytes))
-            {
-                attributes.emplace_back(
-                    TLVView{
-                        .attribute_header = rta,
-                        .value = std::span<uint8_t>(reinterpret_cast<uint8_t *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
-                    });
-            }
-            return ErrorView{
-                .header = header,
-                .error = error_payload,
-                .original_content = original_message,
-                .attributes = attributes,
-            };
+            return parseErrorViewPacket(packet);
         }
         size_t payload_size = NLMSG_PAYLOAD(header, 0);
-        uint8_t *payload_start = reinterpret_cast<uint8_t *>(NLMSG_DATA(header));
-        std::span<uint8_t> payload = std::span<uint8_t>(payload_start, payload_size);
+        std::byte *payload_start = reinterpret_cast<std::byte *>(NLMSG_DATA(header));
+        std::span<std::byte> payload = std::span<std::byte>(payload_start, payload_size);
 
-        // std::cerr << "Unrecognized packet...\n";
         return MessageView{
             .header = header,
             .content = MessageContentView{
@@ -143,7 +149,7 @@ namespace ndisc
         return machine_id;
     }
 
-    void NetlinkSocket::LoadBatch(int socket_fd, std::vector<uint8_t> &data_buffer)
+    void NetlinkSocket::LoadBatch(int socket_fd, std::vector<std::byte> &data_buffer)
     {
         if (socket_fd < 0)
         {
@@ -173,8 +179,10 @@ namespace ndisc
             data_buffer.clear();
             return;
         }
-
-        data_buffer = std::vector<uint8_t>(peek_data_length, 0);
+        if (static_cast<long>(data_buffer.size()) < peek_data_length)
+        {
+            data_buffer.resize(peek_data_length, std::byte{0x00});
+        }
 
         buffer_data.iov_base = data_buffer.data();
         buffer_data.iov_len = peek_data_length;
@@ -193,21 +201,21 @@ namespace ndisc
         data_buffer.resize(data_length);
     }
 
-    std::optional<std::span<uint8_t>> NetlinkSocket::TryLoadFromSpan(std::span<uint8_t> &remaining_data)
+    std::optional<std::span<std::byte>> NetlinkSocket::TryLoadFromSpan(std::span<std::byte> &remaining_data)
     {
         size_t buffer_size = remaining_data.size();
         const nlmsghdr *header = reinterpret_cast<const nlmsghdr *>(remaining_data.data());
         if (NLMSG_OK(header, buffer_size))
         {
             size_t next_message_size = NLMSG_ALIGN(header->nlmsg_len);
-            const std::span<uint8_t> message_span = remaining_data.subspan(0, next_message_size);
+            const std::span<std::byte> message_span = remaining_data.subspan(0, next_message_size);
             remaining_data = remaining_data.subspan(next_message_size);
             return message_span;
         }
         return std::nullopt;
     }
 
-    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(std::function<void(std::span<uint8_t>)> callback, uint32_t multicast_groups)
+    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(std::function<void(std::span<std::byte>)> callback, uint32_t multicast_groups)
     {
         int socket_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
         if (socket_fd < 0)
@@ -237,15 +245,15 @@ namespace ndisc
     void NetlinkSocket::Call()
     {
         // empty current span
-        for (std::optional<std::span<uint8_t>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
+        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
             callback_(packet_from_buffer.value());
         }
         LoadBatch(*socket_fd_, data_buffer_);
-        remaining_data_ = std::span<uint8_t>(data_buffer_.begin(), data_buffer_.end());
-        for (std::optional<std::span<uint8_t>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
+        remaining_data_ = std::span<std::byte>(data_buffer_.begin(), data_buffer_.end());
+        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
@@ -349,7 +357,9 @@ namespace ndisc
         return LldpSender(std::move(socket_fd));
     }
 
-    void LldpSender::SendLldp(unsigned int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
+    constexpr std::byte PORT_ID_MAC_TYPE{0x03};
+
+    void LldpSender::SendLldp(unsigned int interface, const std::array<std::byte, ETH_ALEN> &mac, const std::optional<std::array<std::byte, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
     {
         if (interface > INT_MAX)
         {
@@ -358,20 +368,23 @@ namespace ndisc
         static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
         LLDPEthernetFrame frame{};
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
-        std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
+        // std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
+        std::memcpy(std::begin(frame.header.ether_shost), mac.data(), mac.size());
         frame.header.ether_type = htons(ETH_P_LLDP);
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
         std::string chassis = getMachineId();
         chassis = '\x07' + chassis;
         frame.data_unit.chassis_id.value.resize(chassis.size());
-        std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
+        // std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
+        std::memcpy(frame.data_unit.chassis_id.value.data(), chassis.c_str(), chassis.size());
         frame.data_unit.port_id.type = lldp::PORT_ID;
         frame.data_unit.port_id.value.resize(1 + ETH_ALEN);
-        frame.data_unit.port_id.value[0] = 0x03;
-        std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
+        frame.data_unit.port_id.value[0] = PORT_ID_MAC_TYPE;
+        // std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
+        std::memcpy(std::next(frame.data_unit.port_id.value.data(), 1), mac.data(), ETH_ALEN);
         frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
         frame.data_unit.time_to_live.value.resize(sizeof(ttl));
-        const std::array<uint8_t, sizeof(ttl)> network_ttl = std::bit_cast<std::array<uint8_t, sizeof(ttl)>>(htons(ttl));
+        const std::array<std::byte, sizeof(ttl)> network_ttl = std::bit_cast<std::array<std::byte, sizeof(ttl)>>(htons(ttl));
         std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
         if (ip_address.has_value())
         {
@@ -381,7 +394,7 @@ namespace ndisc
             std::copy(ip_address->begin(), ip_address->end(), management_tlv.value.begin());
             frame.data_unit.optional_tlv.push_back(management_tlv);
         }
-        const std::vector<uint8_t> frame_buffer = frame.ToFrameBuffer();
+        const std::vector<std::byte> frame_buffer = frame.ToFrameBuffer();
         sockaddr_ll address{};
         address.sll_family = AF_PACKET;
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));

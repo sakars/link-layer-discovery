@@ -6,9 +6,9 @@
 
 namespace ndisc
 {
-    std::function<void(std::span<uint8_t>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK)
+    std::function<void(std::span<std::byte>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK)
     {
-        return [CALLBACK](std::span<uint8_t> packet) -> void
+        return [CALLBACK](std::span<std::byte> packet) -> void
         {
             CALLBACK(ndisc::packetViewParser(packet));
         };
@@ -74,7 +74,7 @@ namespace ndisc
                         if (attribute.value.size() > 1)
                         {
 
-                            device.interface_name = std::string(attribute.value.begin(), attribute.value.end());
+                            device.interface_name = std::string(reinterpret_cast<char *>(attribute.value.data()), attribute.value.size());
                             if (!device.interface_name->empty() && device.interface_name->back() == '\0')
                             {
                                 device.interface_name->resize(device.interface_name->size() - 1);
@@ -85,7 +85,7 @@ namespace ndisc
                     {
                         if (attribute.value.size() == ETH_ALEN)
                         {
-                            device.mac_address = std::array<uint8_t, ETH_ALEN>{};
+                            device.mac_address = std::array<std::byte, ETH_ALEN>{};
                             std::copy(attribute.value.begin(), attribute.value.end(), device.mac_address.value().begin());
                         }
                         else
@@ -93,9 +93,9 @@ namespace ndisc
                             std::ios_base::fmtflags flags(std::cerr.flags());
                             std::cerr << "Unexpected size for address payload " << attribute.value.size() << "\n";
                             std::cerr << "Payload:";
-                            for (int byte : attribute.value)
+                            for (std::byte byte : attribute.value)
                             {
-                                std::cerr << " " << std::setfill('0') << std::setw(2) << std::hex << byte << std::dec;
+                                std::cerr << " " << std::setfill('0') << std::setw(2) << std::hex << std::to_integer<unsigned int>(byte) << std::dec;
                             }
                             std::cerr << "\n";
                             std::cerr.flags(flags);
@@ -161,8 +161,8 @@ namespace ndisc
                     {
                         if (attribute.value.size() == sizeof(in_addr))
                         {
-                            std::optional<std::array<uint8_t, sizeof(in_addr)>> &device_ip = devices[index].ip_address;
-                            device_ip = std::array<uint8_t, sizeof(in_addr)>{};
+                            std::optional<std::array<std::byte, sizeof(in_addr)>> &device_ip = devices[index].ip_address;
+                            device_ip = std::array<std::byte, sizeof(in_addr)>{};
                             std::copy(attribute.value.begin(), attribute.value.end(), device_ip->begin());
                         }
                     }

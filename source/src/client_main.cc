@@ -1,4 +1,5 @@
 
+#include <cstring>
 #include <iostream>
 #include <iomanip>
 
@@ -16,7 +17,10 @@ int main()
         auto map = client->GetData();
         for (auto &[key, value] : map)
         {
-            std::string chassis = std::string{value.chassis.begin(), value.chassis.end()};
+            // std::string chassis = std::string{value.chassis.begin(), value.chassis.end()};
+            std::string chassis;
+            chassis.resize(value.chassis.size());
+            std::memcpy(chassis.data(), value.chassis.data(), value.chassis.size());
             std::cout << "Chassis length: " << value.chassis.size() << "\t";
             std::cout << "Chassis: " << chassis << "\t";
             std::cout << "Port: ";
@@ -31,7 +35,7 @@ int main()
             {
                 for (auto &x : *value.ip_address)
                 {
-                    std::cout << x << " ";
+                    std::cout << std::to_integer<int>(x) << " ";
                 }
             }
             else

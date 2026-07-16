@@ -13,7 +13,7 @@ using namespace std::chrono_literals;
 namespace ndisc
 {
 
-    std::function<void(std::span<uint8_t>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK);
+    std::function<void(std::span<std::byte>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK);
 
     enum class ReaderState : uint8_t
     {
