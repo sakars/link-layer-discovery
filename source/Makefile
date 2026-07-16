@@ -1,6 +1,15 @@
 
 
-libfiles = lldp_packet netlink_monitor lldp_monitor
+libfiles  = clock_handler 
+libfiles += data_transport 
+libfiles += device_repository 
+libfiles += event_handlers 
+libfiles += lldp_monitor 
+libfiles += lldp_packet 
+libfiles += lldp_repository
+libfiles += netlink_monitor 
+libfiles += owned_file_descriptor
+
 object_files = $(addprefix ../out/,$(addsuffix .o, $(libfiles)))
 input_files = $(addprefix src/,$(addsuffix .cc, $(libfiles)))
 
