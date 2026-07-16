@@ -20,6 +20,7 @@ using namespace std::chrono_literals;
 namespace ndisc
 {
 
+    constexpr unsigned int KERNEL_PID = 0;
     constexpr unsigned int RANDOM_SEQUENCE_MASK = 0x0FFF;
     constexpr std::chrono::milliseconds NETLINK_DELAY = 500ms;
     constexpr unsigned int NETLINK_DUMP_READ_ATTEMPTS = 5;
@@ -130,7 +131,7 @@ namespace ndisc
         };
     }
 
-    std::string getMachineId()
+    static std::string getMachineId()
     {
         static std::string machine_id;
         if (machine_id.empty())
