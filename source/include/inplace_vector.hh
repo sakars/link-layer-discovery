@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <new>
 #include <optional>
 #include <utility>
@@ -52,7 +53,6 @@ public:
 
     InplaceVector &operator=(const InplaceVector &other)
     {
-        // TODO: Can be improved
         Clear();
         for (int i = 0; i < other.size_; i++)
         {
@@ -90,21 +90,21 @@ public:
         size_ = 0;
     }
 
-    std::optional<int> TryPushBack(const T &value)
+    std::expected<int, T> TryPushBack(const T &value)
     {
         if (size_ >= N)
         {
-            return std::nullopt;
+            return std::unexpected(T(value));
         }
         new (&array_[size_].value) T(value);
         return size_++;
     }
 
-    std::optional<int> TryPushBack(T &&value)
+    std::expected<int, T> TryPushBack(T &&value)
     {
         if (size_ >= N)
         {
-            return std::nullopt;
+            return std::unexpected(std::move(value));
         }
         new (&array_[size_].value) T(std::move(value));
         return size_++;
