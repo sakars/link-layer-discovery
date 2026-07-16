@@ -1,10 +1,10 @@
 #ifndef LLDP_PACKET_HH
 #define LLDP_PACKET_HH
 
-#include <cstdint>
 #include <net/ethernet.h>
 #include <optional>
 #include <span>
+#include <stdint.h>
 #include <vector>
 
 #include "lldp.hh"

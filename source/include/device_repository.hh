@@ -6,7 +6,6 @@
 #include <map>
 #include <optional>
 
-#include "device_repository.hh"
 #include "netlink_monitor.hh"
 
 using namespace std::chrono_literals;
