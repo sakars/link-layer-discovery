@@ -126,41 +126,40 @@ namespace ndisc::data
         unlink(SOCKET_PATH.c_str());
     }
 
-    std::expected<int, int> createDataSocket()
+    std::expected<OwnedFileDescriptor, int> createDataSocket()
     {
         prepareDirectory();
-        int listen_socket = socket(AF_UNIX, SOCK_SEQPACKET, 0);
-        if (listen_socket < 0)
+        int listen_raw_socket = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+        if (listen_raw_socket < 0)
         {
             return std::unexpected(errno);
         }
+        OwnedFileDescriptor listen_socket{listen_raw_socket};
 
         sockaddr_un unix_address{
             .sun_family = AF_UNIX,
             .sun_path = {},
         };
         std::copy(std::begin(SOCKET_PATH), std::end(SOCKET_PATH), std::begin(unix_address.sun_path));
-        int bind_result = bind(listen_socket, reinterpret_cast<const sockaddr *>(&unix_address), sizeof(unix_address));
+        int bind_result = bind(*listen_socket, reinterpret_cast<const sockaddr *>(&unix_address), sizeof(unix_address));
         if (bind_result != 0)
         {
-            close(listen_socket);
             return std::unexpected(errno);
         }
 
-        int listen_result = listen(listen_socket, 1);
+        int listen_result = listen(*listen_socket, 1);
         if (listen_result != 0)
         {
-            close(listen_socket);
             return std::unexpected(errno);
         }
 
         return listen_socket;
     }
 
-    DataTransportSocket::DataTransportSocket(int socket,
+    DataTransportSocket::DataTransportSocket(OwnedFileDescriptor &&socket,
                                              DeviceRepository &device_repository,
                                              NeighbourList &neighbour_list,
-                                             int notify_fd) : socket_(socket),
+                                             int notify_fd) : socket_(std::move(socket)),
                                                               device_repository_(device_repository),
                                                               neighbour_list_(neighbour_list),
                                                               notify_socket_(notify_fd)
@@ -190,7 +189,7 @@ namespace ndisc::data
 
         };
 
-        ssize_t received_bytes = recvmsg(socket_, &msg, MSG_TRUNC);
+        ssize_t received_bytes = recvmsg(*socket_, &msg, MSG_TRUNC);
         if (received_bytes < 0)
         {
             std::cerr << "Data transport socket failed to receive messages, errno " << errno << "\n";
@@ -257,7 +256,7 @@ namespace ndisc::data
                 .msg_controllen = 0,
                 .msg_flags = 0,
             };
-            sendmsg(socket_, &header, 0);
+            sendmsg(*socket_, &header, 0);
 
             for (const auto &[port_id, neighbour] : port_map)
             {
@@ -274,7 +273,7 @@ namespace ndisc::data
                 entry.port_size = port_id.size();
                 std::copy(port_id.begin(), port_id.end(), entry.neighbour_port.begin());
                 dtp = DataTransportPacket(request_id, entry);
-                sendmsg(socket_, &header, 0);
+                sendmsg(*socket_, &header, 0);
                 if (neighbour.ip_address.has_value())
                 {
                     IpEntry entry{
@@ -283,19 +282,19 @@ namespace ndisc::data
                         .padding = {},
                     };
                     dtp = DataTransportPacket(request_id, entry);
-                    sendmsg(socket_, &header, 0);
+                    sendmsg(*socket_, &header, 0);
                 }
                 neighbour_id_counter++;
             }
             chassis_id_counter++;
         }
         dtp = DataTransportPacket();
-        sendmsg(socket_, &header, 0);
+        sendmsg(*socket_, &header, 0);
     }
 
     int DataTransportSocket::GetSocket() const
     {
-        return socket_;
+        return *socket_;
     }
 
     uint32_t DataTransportSocket::GetEvents() const
@@ -303,25 +302,20 @@ namespace ndisc::data
         return EPOLLIN;
     }
 
-    DataTransportRepository::DataTransportRepository(DataTransportRepository &&other) noexcept : socket_(other.socket_), transport_sockets_(std::move(other.transport_sockets_)), event_manager_(other.event_manager_)
-    {
-        other.socket_ = -1;
-    }
-
     std::expected<std::unique_ptr<DataTransportRepository>, int> DataTransportRepository::Create(EventManager &event_manager)
     {
-        int socket = eventfd(0, 0);
-        if (socket == -1)
+        OwnedFileDescriptor socket = eventfd(0, 0);
+        if (!socket.IsValid())
         {
             return std::unexpected(errno);
         }
-        return std::make_unique<DataTransportRepository>(DataTransportRepository(socket, event_manager));
+        return std::make_unique<DataTransportRepository>(DataTransportRepository(std::move(socket), event_manager));
     }
 
     void DataTransportRepository::Call()
     {
         uint64_t value = 0;
-        ssize_t result = read(socket_, &value, sizeof(value));
+        ssize_t result = read(*socket_, &value, sizeof(value));
         std::cout << "Read Data Transport Request " << result << "\n";
         if (result < 0)
         {
@@ -340,32 +334,15 @@ namespace ndisc::data
         }
     }
 
-    DataTransportListenSocket::DataTransportListenSocket(int listener_socket,
+    DataTransportListenSocket::DataTransportListenSocket(OwnedFileDescriptor &&listener_socket,
                                                          DeviceRepository &device_repository,
                                                          NeighbourList &neighbour_list,
-                                                         DataTransportRepository &dtr) : listener_socket_(listener_socket),
+                                                         DataTransportRepository &dtr) : listener_socket_(std::move(listener_socket)),
                                                                                          device_repository_(device_repository),
                                                                                          neighbour_list_(neighbour_list),
                                                                                          dtr_(dtr)
 
     {
-    }
-
-    DataTransportRepository &DataTransportRepository::operator=(DataTransportRepository &&other) noexcept
-    {
-        socket_ = other.socket_;
-        transport_sockets_ = std::move(other.transport_sockets_);
-        event_manager_ = other.event_manager_;
-        other.socket_ = -1;
-        return *this;
-    }
-
-    DataTransportRepository::~DataTransportRepository()
-    {
-        if (socket_ >= 0)
-        {
-            close(socket_);
-        }
     }
 
     void DataTransportRepository::Add(std::shared_ptr<DataTransportSocket> dts)
@@ -379,12 +356,12 @@ namespace ndisc::data
         NeighbourList &neighbour_list,
         DataTransportRepository &dtr)
     {
-        std::expected<int, int> socket = createDataSocket();
+        std::expected<OwnedFileDescriptor, int> socket = createDataSocket();
         if (!socket.has_value())
         {
             return std::unexpected(socket.error());
         }
-        return std::make_unique<DataTransportListenSocket>(DataTransportListenSocket(socket.value(), device_repository, neighbour_list, dtr));
+        return std::make_unique<DataTransportListenSocket>(DataTransportListenSocket(std::move(socket.value()), device_repository, neighbour_list, dtr));
     }
 
     void DataTransportListenSocket::Call()
@@ -392,7 +369,7 @@ namespace ndisc::data
         std::cout << "New data connection...\n";
         sockaddr_un unix_addr{};
         socklen_t size = sizeof(unix_addr);
-        int accept_socket = accept(listener_socket_, reinterpret_cast<sockaddr *>(&unix_addr), &size);
+        int accept_socket = accept(*listener_socket_, reinterpret_cast<sockaddr *>(&unix_addr), &size);
         if (accept_socket < 0)
         {
             std::cerr << "Data transport accept failed with errno: " << errno << "\n";
@@ -404,7 +381,7 @@ namespace ndisc::data
 
     int DataTransportRepository::GetSocket() const
     {
-        return socket_;
+        return *socket_;
     }
     uint32_t DataTransportRepository::GetEvents() const
     {
@@ -413,8 +390,8 @@ namespace ndisc::data
 
     std::expected<DataTransportClient, int> DataTransportClient::Create()
     {
-        int socket_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
-        if (socket_fd < 0)
+        OwnedFileDescriptor socket_fd{socket(AF_UNIX, SOCK_SEQPACKET, 0)};
+        if (!socket_fd.IsValid())
         {
             return std::unexpected(errno);
         }
@@ -424,12 +401,12 @@ namespace ndisc::data
         };
 
         std::copy(std::begin(SOCKET_PATH), std::end(SOCKET_PATH), std::begin(address.sun_path));
-        int bind_result = connect(socket_fd, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+        int bind_result = connect(*socket_fd, reinterpret_cast<sockaddr *>(&address), sizeof(address));
         if (bind_result < 0)
         {
             return std::unexpected(errno);
         }
-        return DataTransportClient(socket_fd);
+        return DataTransportClient(std::move(socket_fd));
     }
 
     std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> DataTransportClient::GetData()
@@ -437,7 +414,7 @@ namespace ndisc::data
         std::map<uint16_t, std::vector<uint8_t>> chassis_map{};
         std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> map{};
         std::cout << "Sending request " << request_id_ << "\n";
-        sendRequest(socket_, request_id_);
+        sendRequest(*socket_, request_id_);
         int i = 0;
         while (true)
         {
@@ -446,7 +423,7 @@ namespace ndisc::data
             {
                 return {};
             }
-            std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, std::monostate>, int> packet = readDataPacket(socket_);
+            std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, std::monostate>, int> packet = readDataPacket(*socket_);
             if (!packet.has_value())
             {
                 if (packet.error() == EAGAIN)

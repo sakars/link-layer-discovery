@@ -238,7 +238,7 @@ namespace ndisc
         {
             callback_(packet_from_buffer.value());
         }
-        LoadBatch(socket_fd_, data_buffer_);
+        LoadBatch(*socket_fd_, data_buffer_);
         remaining_data_ = std::span<uint8_t>(data_buffer_.begin(), data_buffer_.end());
         for (std::optional<std::span<uint8_t>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
              packet_from_buffer.has_value();
@@ -272,13 +272,13 @@ namespace ndisc
             .msg_flags = 0,
         };
 
-        const long peek_data_length = recvmsg(socket_fd_, &header_buffer, MSG_PEEK | MSG_TRUNC);
+        const long peek_data_length = recvmsg(*socket_fd_, &header_buffer, MSG_PEEK | MSG_TRUNC);
         return peek_data_length > 0;
     }
 
     long NetlinkSocket::SendGetLinkDumpMessage()
     {
-        if (socket_fd_ < 0)
+        if (!socket_fd_.IsValid())
         {
             return -2;
         }
@@ -297,7 +297,7 @@ namespace ndisc
         interface_info->ifi_flags = 0;
         interface_info->ifi_index = 0;
 
-        const long bytes_sent = send(socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
+        const long bytes_sent = send(*socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
         if (bytes_sent < netlink_header->nlmsg_len)
         {
             return -3;
@@ -307,7 +307,7 @@ namespace ndisc
 
     long NetlinkSocket::SendGetAddrMessage()
     {
-        if (socket_fd_ < 0)
+        if (!socket_fd_.IsValid())
         {
             return -2;
         }
@@ -326,7 +326,7 @@ namespace ndisc
         address_message->ifa_flags = 0;
         address_message->ifa_index = 0;
 
-        const long bytes_sent = send(socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
+        const long bytes_sent = send(*socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
         if (bytes_sent < netlink_header->nlmsg_len)
         {
             return -3;
@@ -336,12 +336,12 @@ namespace ndisc
 
     std::optional<LldpSender> LldpSender::Create()
     {
-        int socket_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-        if (socket_fd < 0)
+        OwnedFileDescriptor socket_fd{socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))};
+        if (!socket_fd.IsValid())
         {
             return std::nullopt;
         }
-        return LldpSender(socket_fd);
+        return LldpSender(std::move(socket_fd));
     }
 
     void LldpSender::SendLldp(unsigned int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
@@ -383,7 +383,7 @@ namespace ndisc
         address.sll_halen = multicast_address.size();
         address.sll_ifindex = static_cast<int>(interface);
         address.sll_protocol = htons(ETH_P_LLDP);
-        ssize_t bytes = sendto(socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+        ssize_t bytes = sendto(*socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
         if (bytes < 0)
         {
             std::cout << "errno: " << errno << "\n";

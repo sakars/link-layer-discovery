@@ -96,7 +96,7 @@ namespace ndisc
     void ClockHandler::Call()
     {
         uint64_t times_triggered = 0;
-        ssize_t bytes_received = read(socket_fd_, &times_triggered, sizeof(times_triggered));
+        ssize_t bytes_received = read(*socket_fd_, &times_triggered, sizeof(times_triggered));
         if (bytes_received < 0 || times_triggered == 0)
         {
             return;
@@ -143,7 +143,7 @@ namespace ndisc
 
     int ClockHandler::GetSocket() const
     {
-        return socket_fd_;
+        return *socket_fd_;
     }
 
     std::unique_ptr<ClockHandler> ClockHandler::Create(NeighbourList &neighbour_list, DeviceRepository &device_repository, LldpRepository &lldp_repository)

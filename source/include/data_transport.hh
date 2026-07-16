@@ -14,6 +14,7 @@
 #include "event_handlers.hh"
 #include "device_repository.hh"
 #include "lldp_monitor.hh"
+#include "owned_file_descriptor.hh"
 
 namespace ndisc::data
 {
@@ -82,18 +83,18 @@ namespace ndisc::data
 
     void prepareDirectory();
 
-    std::expected<int, int> createDataSocket();
+    std::expected<OwnedFileDescriptor, int> createDataSocket();
 
     class DataTransportSocket : public EventHandler
     {
-        int socket_;
+        OwnedFileDescriptor socket_;
         std::reference_wrapper<DeviceRepository> device_repository_;
         std::reference_wrapper<NeighbourList> neighbour_list_;
         int notify_socket_;
         bool eof_received_ = false;
 
     public:
-        DataTransportSocket(int socket,
+        DataTransportSocket(OwnedFileDescriptor &&socket,
                             DeviceRepository &device_repository,
                             NeighbourList &neighbour_list,
                             int notify_fd);
@@ -111,21 +112,13 @@ namespace ndisc::data
 
     class DataTransportRepository : public EventHandler
     {
-        int socket_;
+        OwnedFileDescriptor socket_;
         std::vector<std::shared_ptr<DataTransportSocket>> transport_sockets_;
         std::reference_wrapper<EventManager> event_manager_;
 
-        DataTransportRepository(int socket, EventManager &event_manager) : socket_(socket), event_manager_(event_manager) {}
+        DataTransportRepository(OwnedFileDescriptor &&socket, EventManager &event_manager) : socket_(std::move(socket)), event_manager_(event_manager) {}
 
     public:
-        DataTransportRepository(DataTransportRepository &) = delete;
-        DataTransportRepository(DataTransportRepository &&other) noexcept;
-
-        DataTransportRepository &operator=(DataTransportRepository &) = delete;
-        DataTransportRepository &operator=(DataTransportRepository &&other) noexcept;
-
-        ~DataTransportRepository() override;
-
         void Add(std::shared_ptr<DataTransportSocket> dts);
 
         static std::expected<std::unique_ptr<DataTransportRepository>, int> Create(EventManager &event_manager);
@@ -139,12 +132,12 @@ namespace ndisc::data
 
     class DataTransportListenSocket : public EventHandler
     {
-        int listener_socket_;
+        OwnedFileDescriptor listener_socket_;
         std::reference_wrapper<DeviceRepository> device_repository_;
         std::reference_wrapper<NeighbourList> neighbour_list_;
         std::reference_wrapper<DataTransportRepository> dtr_;
 
-        DataTransportListenSocket(int listener_socket,
+        DataTransportListenSocket(OwnedFileDescriptor &&listener_socket,
                                   DeviceRepository &device_repository,
                                   NeighbourList &neighbour_list,
                                   DataTransportRepository &dtr);
@@ -159,7 +152,7 @@ namespace ndisc::data
 
         int GetSocket() const override
         {
-            return listener_socket_;
+            return *listener_socket_;
         }
 
         uint32_t GetEvents() const override
@@ -170,36 +163,12 @@ namespace ndisc::data
 
     class DataTransportClient
     {
-        int socket_;
+        OwnedFileDescriptor socket_;
         uint16_t request_id_ = 1;
 
-        DataTransportClient(int socket_fd) : socket_(socket_fd) {}
+        DataTransportClient(OwnedFileDescriptor &&socket_fd) : socket_(std::move(socket_fd)) {}
 
     public:
-        DataTransportClient(const DataTransportClient &) = delete;
-        DataTransportClient(DataTransportClient &&other) noexcept : socket_(other.socket_)
-        {
-            other.socket_ = -1;
-        }
-        DataTransportClient &operator=(const DataTransportClient &) = delete;
-        DataTransportClient &operator=(DataTransportClient &&other) noexcept
-        {
-            if (socket_ >= 0)
-            {
-                close(socket_);
-            }
-            socket_ = other.socket_;
-            return *this;
-        }
-
-        ~DataTransportClient()
-        {
-            if (socket_ >= 0)
-            {
-                close(socket_);
-            }
-        }
-
         static std::expected<DataTransportClient, int> Create();
 
         struct DeviceData

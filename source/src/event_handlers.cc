@@ -3,44 +3,16 @@
 
 namespace ndisc
 {
-    EventManager::EventManager(EventManager &&other) noexcept
-    {
-        if (epfd_ >= 0)
-        {
-            close(epfd_);
-        }
-        epfd_ = other.epfd_;
-        other.epfd_ = -1;
-        registered_events_ = std::move(other.registered_events_);
-        event_id_counter_ = other.event_id_counter_;
-        other.registered_events_.clear();
-        other.event_id_counter_ = 1;
-    }
-
-    EventManager &EventManager::operator=(EventManager &&other) noexcept
-    {
-        if (epfd_ >= 0)
-        {
-            close(epfd_);
-        }
-        epfd_ = other.epfd_;
-        other.epfd_ = -1;
-        registered_events_ = std::move(other.registered_events_);
-        event_id_counter_ = other.event_id_counter_;
-        other.registered_events_.clear();
-        other.event_id_counter_ = 1;
-        return *this;
-    }
 
     std::expected<EventManager, int> EventManager::Create()
     {
-        int epfd = epoll_create1(0);
-        if (epfd == -1)
+        OwnedFileDescriptor epfd{epoll_create1(0)};
+        if (!epfd.IsValid())
         {
             return std::unexpected(errno);
         }
 
-        return EventManager(epfd);
+        return EventManager(std::move(epfd));
     }
 
     std::expected<size_t, int> EventManager::Add(const std::shared_ptr<EventHandler> &handler)
@@ -48,7 +20,7 @@ namespace ndisc
         epoll_event event{};
         event.data.u64 = event_id_counter_;
         event.events = handler->GetEvents();
-        int return_value = epoll_ctl(epfd_, EPOLL_CTL_ADD, handler->GetSocket(), &event);
+        int return_value = epoll_ctl(*epfd_, EPOLL_CTL_ADD, handler->GetSocket(), &event);
         if (return_value != 0)
         {
             return std::unexpected(errno);
@@ -65,7 +37,7 @@ namespace ndisc
         }
         if (std::shared_ptr<EventHandler> event_handler = registered_events_[handler_id].lock())
         {
-            int return_value = epoll_ctl(epfd_, EPOLL_CTL_DEL, event_handler->GetSocket(), nullptr);
+            int return_value = epoll_ctl(*epfd_, EPOLL_CTL_DEL, event_handler->GetSocket(), nullptr);
             if (return_value != 0)
             {
                 return std::unexpected(errno);
@@ -94,7 +66,7 @@ namespace ndisc
             }
         }
         std::array<epoll_event, MAX_CONCURRENT_EVENTS> events{};
-        int fds_ready = epoll_wait(epfd_, events.data(), MAX_CONCURRENT_EVENTS, EPOLL_TIMEOUT);
+        int fds_ready = epoll_wait(*epfd_, events.data(), MAX_CONCURRENT_EVENTS, EPOLL_TIMEOUT);
         if (fds_ready < 0)
         {
             std::cerr << "Epoll wait errored: " << errno << "\n";

@@ -32,13 +32,13 @@ namespace ndisc
     class NetlinkSocket final : public EventHandler
     {
     private:
-        int socket_fd_;
+        OwnedFileDescriptor socket_fd_;
         std::vector<uint8_t> data_buffer_;
         std::span<uint8_t> remaining_data_;
         int sequence_number_ = 1;
         std::function<void(std::span<uint8_t>)> callback_;
 
-        NetlinkSocket(int socket_fd, std::function<void(std::span<uint8_t>)> callback) : socket_fd_(socket_fd), callback_(std::move(callback))
+        NetlinkSocket(OwnedFileDescriptor &&socket_fd, std::function<void(std::span<uint8_t>)> callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
         {
         }
 
@@ -51,7 +51,7 @@ namespace ndisc
 
         int GetSocket() const override
         {
-            return socket_fd_;
+            return *socket_fd_;
         }
 
         uint32_t GetEvents() const override
@@ -144,35 +144,11 @@ namespace ndisc
 
     class LldpSender
     {
-        int socket_fd_;
+        OwnedFileDescriptor socket_fd_;
 
-        LldpSender(int socket) : socket_fd_(socket) {}
+        LldpSender(OwnedFileDescriptor &&socket) : socket_fd_(std::move(socket)) {}
 
     public:
-        ~LldpSender()
-        {
-            if (socket_fd_ >= 0)
-            {
-                close(socket_fd_);
-            }
-        }
-        LldpSender(const LldpSender &) = delete;
-        LldpSender(LldpSender &&other) noexcept : socket_fd_(other.socket_fd_)
-        {
-            other.socket_fd_ = -1;
-        }
-        LldpSender &operator=(const LldpSender &) = delete;
-        LldpSender &operator=(LldpSender &&other) noexcept
-        {
-            if (socket_fd_ >= 0)
-            {
-                close(socket_fd_);
-            }
-            socket_fd_ = other.socket_fd_;
-            other.socket_fd_ = -1;
-            return *this;
-        }
-
         static std::optional<LldpSender> Create();
 
         void SendLldp(unsigned int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const;

@@ -5,23 +5,27 @@
 #include "device_repository.hh"
 #include "lldp_monitor.hh"
 #include "lldp_repository.hh"
+#include "owned_file_descriptor.hh"
 
 namespace ndisc
 {
 
     class ClockHandler final : public EventHandler
     {
-        int socket_fd_;
+        OwnedFileDescriptor socket_fd_;
         NeighbourList *neighbour_list_;
         DeviceRepository *device_repository_;
         LldpRepository *lldp_repository_;
 
         uint16_t dump_timer_ = 0;
 
-        ClockHandler(int socket_fd, NeighbourList *neighbour_list, DeviceRepository *device_repository, LldpRepository *lldp) : socket_fd_(socket_fd),
-                                                                                                                                neighbour_list_(neighbour_list),
-                                                                                                                                device_repository_(device_repository),
-                                                                                                                                lldp_repository_(lldp) {}
+        ClockHandler(OwnedFileDescriptor &&socket_fd,
+                     NeighbourList *neighbour_list,
+                     DeviceRepository *device_repository,
+                     LldpRepository *lldp) : socket_fd_(std::move(socket_fd)),
+                                             neighbour_list_(neighbour_list),
+                                             device_repository_(device_repository),
+                                             lldp_repository_(lldp) {}
 
     public:
         void DumpInfo();

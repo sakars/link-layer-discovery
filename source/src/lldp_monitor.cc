@@ -62,18 +62,18 @@ namespace ndisc
 
     std::unique_ptr<EthernetLldpMonitor> EthernetLldpMonitor::Create(Callback callback)
     {
-        int socket_fd = socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_LLDP));
-        if (socket_fd < 0)
+        OwnedFileDescriptor socket_fd{socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_LLDP))};
+        if (!socket_fd.IsValid())
         {
             std::cerr << "Monitor errno: " << errno << "\n";
             return nullptr;
         }
-        return std::make_unique<EthernetLldpMonitor>(EthernetLldpMonitor(socket_fd, std::move(callback)));
+        return std::make_unique<EthernetLldpMonitor>(EthernetLldpMonitor(std::move(socket_fd), std::move(callback)));
     }
 
     int EthernetLldpMonitor::GetSocket() const
     {
-        return socket_fd_;
+        return *socket_fd_;
     }
 
     void EthernetLldpMonitor::Call()
@@ -91,7 +91,7 @@ namespace ndisc
         message_header.msg_controllen = 0;
         message_header.msg_flags = 0;
 
-        ssize_t peek_packet_length = recvmsg(socket_fd_, &message_header, MSG_PEEK | MSG_TRUNC);
+        ssize_t peek_packet_length = recvmsg(*socket_fd_, &message_header, MSG_PEEK | MSG_TRUNC);
 
         if (peek_packet_length > static_cast<ssize_t>(message_buffer_.size()))
         {
@@ -101,7 +101,7 @@ namespace ndisc
         message_iovec.iov_base = message_buffer_.data();
         message_iovec.iov_len = message_buffer_.size();
 
-        ssize_t received_length = recvmsg(socket_fd_, &message_header, 0);
+        ssize_t received_length = recvmsg(*socket_fd_, &message_header, 0);
 
         if (received_length == peek_packet_length)
         {

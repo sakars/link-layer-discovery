@@ -32,11 +32,11 @@ namespace ndisc
         using Callback = std::function<void(const sockaddr_ll &, std::span<const uint8_t>)>;
 
     private:
-        int socket_fd_;
+        OwnedFileDescriptor socket_fd_;
         std::vector<uint8_t> message_buffer_;
         Callback callback_;
 
-        EthernetLldpMonitor(int socket_fd, Callback callback) : socket_fd_(socket_fd), callback_(std::move(callback))
+        EthernetLldpMonitor(OwnedFileDescriptor &&socket_fd, Callback callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
         {
             message_buffer_.resize(2);
         }
