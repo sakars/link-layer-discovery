@@ -1,22 +1,12 @@
 #ifndef EVENT_HANDLERS_HH
 #define EVENT_HANDLERS_HH
 
-#include <array>
 #include <expected>
-#include <iostream>
-#include <linux/version.h>
 #include <map>
 #include <memory>
-#include <optional>
-#include <sys/epoll.h>
 #include <unistd.h>
-#include <vector>
 
 #include "owned_file_descriptor.hh"
-
-static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 9), "epoll_ctl bug https://man7.org/linux/man-pages/man2/epoll_ctl.2.html#BUGS");
-
-static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 27), "epoll_create1 missing");
 
 namespace ndisc
 {
