@@ -3,6 +3,9 @@
 
 namespace ndisc::data
 {
+
+    const std::string SOCKET_PATH = "/run/ndisc/ndisc.sock";
+
     DataTransportPacket::DataTransportPacket()
     {
     }
@@ -25,26 +28,7 @@ namespace ndisc::data
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
     }
 
-    void sendData(int file_descriptor, DataTransportPacket data_transport)
-    {
-        iovec iov{
-            .iov_base = &data_transport,
-            .iov_len = sizeof(data_transport),
-        };
-        msghdr header{
-            .msg_name = nullptr,
-            .msg_namelen = 0,
-            .msg_iov = &iov,
-            .msg_iovlen = 1,
-            .msg_control = nullptr,
-            .msg_controllen = 0,
-            .msg_flags = 0,
-        };
-
-        sendmsg(file_descriptor, &header, 0);
-    }
-
-    void sendRequest(int file_descriptor, uint16_t request_id)
+    static void sendRequest(int file_descriptor, uint16_t request_id)
     {
 
         iovec iov{
@@ -64,7 +48,7 @@ namespace ndisc::data
         sendmsg(file_descriptor, &header, 0);
     }
 
-    std::expected<DataTransportPacket, int> readData(int file_descriptor)
+    static std::expected<DataTransportPacket, int> readData(int file_descriptor)
     {
         DataTransportPacket data_transport;
         iovec iov{
@@ -92,7 +76,7 @@ namespace ndisc::data
         return data_transport;
     }
 
-    std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, std::monostate>, int> readDataPacket(int file_descriptor)
+    static std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, std::monostate>, int> readDataPacket(int file_descriptor)
     {
         std::expected<DataTransportPacket, int> packet = readData(file_descriptor);
         if (!packet.has_value())
@@ -119,14 +103,14 @@ namespace ndisc::data
         return std::unexpected(0);
     }
 
-    void prepareDirectory()
+    static void prepareDirectory()
     {
         std::filesystem::path path = SOCKET_PATH;
         std::filesystem::create_directories(path.remove_filename());
         unlink(SOCKET_PATH.c_str());
     }
 
-    std::expected<OwnedFileDescriptor, int> createDataSocket()
+    static std::expected<OwnedFileDescriptor, int> createDataSocket()
     {
         prepareDirectory();
         int listen_raw_socket = socket(AF_UNIX, SOCK_SEQPACKET, 0);

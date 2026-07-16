@@ -18,7 +18,6 @@
 
 namespace ndisc
 {
-    constexpr unsigned int KERNEL_PID = 0;
 
     class NetlinkSocket final : public EventHandler
     {
@@ -130,8 +129,6 @@ namespace ndisc
     constexpr uint16_t PACKET_HOLD_AMOUNT = 5;
     constexpr uint16_t MESSAGE_TRANSMIT_INTERVAL = TARGET_TTL / PACKET_HOLD_AMOUNT;
     constexpr uint16_t MESSAGE_FAST_INTERVAL = 1;
-
-    std::string getMachineId();
 
     class LldpSender
     {

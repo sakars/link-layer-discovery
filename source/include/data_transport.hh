@@ -27,7 +27,6 @@ namespace ndisc::data
     };
 
     constexpr uint16_t DATA_MAX_SIZE = 512;
-    const std::string SOCKET_PATH = "/run/ndisc/ndisc.sock";
 
     struct ChassisEntry
     {
@@ -72,18 +71,6 @@ namespace ndisc::data
         DataTransportPacket(uint16_t rid, ChassisEntry &entry);
     };
     static_assert(std::is_trivially_copyable_v<DataTransportPacket>);
-
-    void sendData(int file_descriptor, DataTransportPacket data_transport);
-
-    void sendRequest(int file_descriptor, uint16_t request_id);
-
-    std::expected<DataTransportPacket, int> readData(int file_descriptor);
-
-    std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, std::monostate>, int> readDataPacket(int file_descriptor);
-
-    void prepareDirectory();
-
-    std::expected<OwnedFileDescriptor, int> createDataSocket();
 
     class DataTransportSocket : public EventHandler
     {
