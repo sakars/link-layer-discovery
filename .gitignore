@@ -1,6 +1,6 @@
 .clang-tidy
 *.pdf
-out/
+out
 .vscode
 notes.md
 task.md

@@ -13,7 +13,7 @@ libfiles += owned_file_descriptor
 object_files = $(addprefix ../out/,$(addsuffix .o, $(libfiles)))
 input_files = $(addprefix src/,$(addsuffix .cc, $(libfiles)))
 
-test_files  = test
+test_files  = inplace_vector
 
 test_executables = $(addprefix ../test_executables/test_, $(test_files))
 
