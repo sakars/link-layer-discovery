@@ -1,11 +1,4 @@
 
-#include "clock_handler.hh"
-#include "data_transport.hh"
-#include "device_repository.hh"
-#include "lldp_monitor.hh"
-#include "lldp_repository.hh"
-#include "netlink_monitor.hh"
-
 #include <chrono>
 #include <execinfo.h>
 #include <iomanip>
@@ -16,6 +9,13 @@
 #include <stdlib.h>
 #include <thread>
 #include <unistd.h>
+
+#include "clock_handler.hh"
+#include "data_transport.hh"
+#include "device_repository.hh"
+#include "lldp_monitor.hh"
+#include "lldp_repository.hh"
+#include "netlink_monitor.hh"
 
 using namespace std::chrono_literals;
 

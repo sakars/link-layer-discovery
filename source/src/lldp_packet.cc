@@ -1,5 +1,5 @@
-
 #include "lldp_packet.hh"
+
 #include <arpa/inet.h>
 #include <array>
 #include <bit>

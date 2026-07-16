@@ -1,29 +1,20 @@
 #ifndef NETLINK_MONITOR_HH
 #define NETLINK_MONITOR_HH
 
+#include <arpa/inet.h>
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <linux/rtnetlink.h>
+#include <optional>
+#include <span>
+#include <sys/epoll.h>
+#include <variant>
+#include <vector>
+
 #include "event_handlers.hh"
 #include "lldp.hh"
 #include "lldp_packet.hh"
-
-#include <arpa/inet.h>
-#include <cstdint>
-#include <expected>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <linux/if_packet.h>
-#include <linux/netlink.h>
-#include <linux/rtnetlink.h>
-#include <map>
-#include <memory>
-#include <net/ethernet.h>
-#include <net/if_arp.h>
-#include <optional>
-#include <span>
-#include <string>
-#include <type_traits>
-#include <variant>
-#include <vector>
 
 namespace ndisc
 {
