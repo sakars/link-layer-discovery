@@ -1,6 +1,7 @@
 #include "clock_handler.hh"
 
 #include <sys/timerfd.h>
+
 namespace ndisc
 {
     void ClockHandler::DumpInfo()

@@ -4,4 +4,4 @@ out
 .vscode
 notes.md
 task.md
-test/*
+test_executables/*

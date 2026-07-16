@@ -1,5 +1,9 @@
 
 #include "device_repository.hh"
+
+#include <iostream>
+#include <net/if_arp.h>
+
 namespace ndisc
 {
     std::function<void(std::span<uint8_t>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK)

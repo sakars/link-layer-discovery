@@ -1,5 +1,17 @@
 
+
 #include "event_handlers.hh"
+
+#include <array>
+#include <iostream>
+#include <linux/version.h>
+#include <optional>
+#include <sys/epoll.h>
+#include <vector>
+
+static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 9), "epoll_ctl bug https://man7.org/linux/man-pages/man2/epoll_ctl.2.html#BUGS");
+
+static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 27), "epoll_create1 missing");
 
 namespace ndisc
 {
