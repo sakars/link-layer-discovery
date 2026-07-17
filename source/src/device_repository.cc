@@ -6,13 +6,6 @@
 
 namespace ndisc
 {
-    std::function<void(std::span<std::byte>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK)
-    {
-        return [CALLBACK](std::span<std::byte> packet) -> void
-        {
-            CALLBACK(ndisc::packetViewParser(packet));
-        };
-    }
 
     void DeviceReader::Tick()
     {
@@ -55,21 +48,21 @@ namespace ndisc
             return;
         }
         unsigned int sequence_number = std::visit([&](auto packet)
-                                                  { return packet.header->nlmsg_seq; }, packet);
+                                                  { return packet.header.nlmsg_seq; }, packet);
         if (sequence_number != device_sequence_number.value())
         {
             return;
         }
         if (ndisc::LinkView *link_message = std::get_if<ndisc::LinkView>(&packet))
         {
-            if (link_message->header->nlmsg_type == RTM_NEWLINK && link_message->content.interface_info->ifi_type == ARPHRD_ETHER)
+            if (link_message->header.nlmsg_type == RTM_NEWLINK && link_message->content.interface_info.ifi_type == ARPHRD_ETHER)
             {
-                int index = link_message->content.interface_info->ifi_index;
+                int index = link_message->content.interface_info.ifi_index;
                 ndisc::DeviceData &device = devices[index];
                 device.if_index = index;
                 for (const ndisc::TLVView attribute : link_message->content.attributes)
                 {
-                    if (attribute.attribute_header->rta_type == IFLA_IFNAME)
+                    if (attribute.attribute_header.rta_type == IFLA_IFNAME)
                     {
                         if (attribute.value.size() > 1)
                         {
@@ -81,7 +74,7 @@ namespace ndisc
                             }
                         }
                     }
-                    else if (attribute.attribute_header->rta_type == IFLA_ADDRESS)
+                    else if (attribute.attribute_header.rta_type == IFLA_ADDRESS)
                     {
                         if (attribute.value.size() == ETH_ALEN)
                         {
@@ -140,24 +133,24 @@ namespace ndisc
             return;
         }
         unsigned int sequence_number = std::visit([&](auto packet)
-                                                  { return packet.header->nlmsg_seq; }, packet);
+                                                  { return packet.header.nlmsg_seq; }, packet);
         if (sequence_number != ip_sequence_number.value())
         {
             return;
         }
         if (ndisc::AddrView *link_message = std::get_if<ndisc::AddrView>(&packet))
         {
-            if (link_message->header->nlmsg_type == RTM_NEWADDR)
+            if (link_message->header.nlmsg_type == RTM_NEWADDR)
             {
-                if (link_message->content.address_info->ifa_family != AF_INET || (link_message->content.address_info->ifa_flags & IFA_F_SECONDARY) != 0)
+                if (link_message->content.address_info.ifa_family != AF_INET || (link_message->content.address_info.ifa_flags & IFA_F_SECONDARY) != 0)
                 {
                     return;
                 }
-                unsigned int index = link_message->content.address_info->ifa_index;
+                unsigned int index = link_message->content.address_info.ifa_index;
                 devices[index].if_index = index;
                 for (const ndisc::TLVView attribute : link_message->content.attributes)
                 {
-                    if (attribute.attribute_header->rta_type == IFA_ADDRESS)
+                    if (attribute.attribute_header.rta_type == IFA_ADDRESS)
                     {
                         if (attribute.value.size() == sizeof(in_addr))
                         {
@@ -176,7 +169,7 @@ namespace ndisc
         }
         else if (ndisc::ErrorView *error_view = std::get_if<ndisc::ErrorView>(&packet))
         {
-            std::cerr << "Failed to get address dump. " << error_view->error->error << " Retrying...\n";
+            std::cerr << "Failed to get address dump. " << error_view->message_error.error << " Retrying...\n";
             ip_reader_state = ReaderState::ERRORED;
             ExpediteAddrDump();
         }
@@ -186,16 +179,16 @@ namespace ndisc
     {
         std::unique_ptr<DeviceRepository> repository_handle = std::make_unique<DeviceRepository>();
         DeviceRepository &repository = *repository_handle;
-        std::expected<std::unique_ptr<ndisc::NetlinkSocket>, int> monitor_socket = ndisc::NetlinkSocket::Create(packetConverter([&repository](ndisc::NetlinkPacketView packet)
-                                                                                                                                { repository.HandleMonitorPackets(std::move(packet)); }),
+        std::expected<std::unique_ptr<ndisc::NetlinkSocket>, int> monitor_socket = ndisc::NetlinkSocket::Create([&repository](ndisc::NetlinkPacketView packet)
+                                                                                                                { repository.HandleMonitorPackets(std::move(packet)); },
                                                                                                                 RTMGRP_LINK | RTMGRP_IPV4_IFADDR);
         if (!monitor_socket.has_value() || monitor_socket.value() == nullptr)
         {
             return std::unexpected(monitor_socket.error());
         }
         repository.monitor = std::move(monitor_socket.value());
-        std::expected<std::unique_ptr<ndisc::NetlinkSocket>, int> device_socket = ndisc::NetlinkSocket::Create(packetConverter([&repository](ndisc::NetlinkPacketView packet)
-                                                                                                                               { repository.UpdateDeviceList(std::move(packet)); }),
+        std::expected<std::unique_ptr<ndisc::NetlinkSocket>, int> device_socket = ndisc::NetlinkSocket::Create([&repository](ndisc::NetlinkPacketView packet)
+                                                                                                               { repository.UpdateDeviceList(std::move(packet)); },
                                                                                                                0);
 
         if (!device_socket.has_value() || device_socket.value() == nullptr)
@@ -204,8 +197,8 @@ namespace ndisc
         }
         repository.device_reader.device_reader = std::move(device_socket.value());
 
-        std::expected<std::unique_ptr<ndisc::NetlinkSocket>, int> ip_socket = ndisc::NetlinkSocket::Create(packetConverter([&repository](ndisc::NetlinkPacketView packet)
-                                                                                                                           { repository.UpdateAddressList(packet); }),
+        std::expected<std::unique_ptr<ndisc::NetlinkSocket>, int> ip_socket = ndisc::NetlinkSocket::Create([&repository](ndisc::NetlinkPacketView packet)
+                                                                                                           { repository.UpdateAddressList(packet); },
                                                                                                            0);
         if (!ip_socket.has_value() || ip_socket.value() == nullptr)
         {

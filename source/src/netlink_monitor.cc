@@ -39,51 +39,53 @@ namespace ndisc
              RTA_OK(rta, remaining_bytes);
              rta = RTA_NEXT(rta, remaining_bytes))
         {
-            attributes.emplace_back(
-                TLVView{
-                    .attribute_header = rta,
-                    .value = std::span<std::byte>(reinterpret_cast<std::byte *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
-                });
+            TLVView tlv;
+            std::memcpy(&tlv.attribute_header, rta, sizeof(rtattr));
+            tlv.value = std::span<std::byte>(reinterpret_cast<std::byte *>(RTA_DATA(rta)), RTA_PAYLOAD(rta));
+            attributes.emplace_back(tlv);
         }
         return attributes;
     }
 
-    static LinkView parseLinkViewPacket(std::span<std::byte> packet)
+    static LinkContentView parseLinkViewPacket(std::span<std::byte> packet)
     {
-        ifinfomsg *interface_data = reinterpret_cast<ifinfomsg *>(NLMSG_DATA(packet.data()));
+        nlmsghdr header{};
+        std::memcpy(&header, packet.data(), sizeof(nlmsghdr));
+        ifinfomsg interface_data{};
+        std::memcpy(&interface_data, NLMSG_DATA(packet.data()), sizeof(ifinfomsg));
+
         std::vector<TLVView> attributes = parseTlvs(packet, sizeof(ifinfomsg));
-        return LinkView{
-            .header = reinterpret_cast<nlmsghdr *>(packet.data()),
-            .content = LinkContentView{
-                .interface_info = interface_data,
-                .attributes = std::move(attributes),
-            },
+        return LinkContentView{
+            .interface_info = interface_data,
+            .attributes = std::move(attributes),
         };
     }
 
-    static AddrView parseAddrViewPacket(std::span<std::byte> packet)
+    static AddrContentView parseAddrViewPacket(std::span<std::byte> packet)
     {
-        ifaddrmsg *address_info = reinterpret_cast<ifaddrmsg *>(NLMSG_DATA(packet.data()));
+        // ifaddrmsg *address_info = reinterpret_cast<ifaddrmsg *>(NLMSG_DATA(packet.data()));
+        nlmsghdr header{};
+        std::memcpy(&header, packet.data(), sizeof(nlmsghdr));
+        ifaddrmsg address_info{};
+        std::memcpy(&address_info, NLMSG_DATA(packet.data()), sizeof(ifaddrmsg));
         std::vector<TLVView> attributes = parseTlvs(packet, sizeof(ifaddrmsg));
-        return AddrView{
-            .header = reinterpret_cast<nlmsghdr *>(packet.data()),
-            .content = AddrContentView{
-                .address_info = address_info,
-                .attributes = std::move(attributes),
-            },
+        return AddrContentView{
+            .address_info = address_info,
+            .attributes = std::move(attributes),
         };
     }
 
-    static ErrorView parseErrorViewPacket(std::span<std::byte> packet)
+    static ErrorView parseErrorViewPacket(nlmsghdr &header, std::span<std::byte> packet)
     {
-        nlmsghdr *header = reinterpret_cast<nlmsghdr *>(packet.data());
-        nlmsgerr *error_payload = reinterpret_cast<nlmsgerr *>(NLMSG_DATA(packet.data()));
-        std::optional<MessageContentView> original_message = std::nullopt;
+        nlmsgerr error_payload{};
+        std::memcpy(&error_payload, NLMSG_DATA(packet.data()), sizeof(nlmsgerr));
+        std::optional<MessageContentView>
+            original_message = std::nullopt;
         size_t payload_size = sizeof(nlmsgerr);
-        if ((header->nlmsg_flags & NLM_F_CAPPED) == 0)
+        if ((header.nlmsg_flags & NLM_F_CAPPED) == 0)
         {
-            std::byte *data = reinterpret_cast<std::byte *>(NLMSG_DATA(&(error_payload->msg)));
-            size_t original_message_payload_size = NLMSG_PAYLOAD(&(error_payload->msg), 0);
+            std::byte *data = reinterpret_cast<std::byte *>(NLMSG_DATA(&(error_payload.msg)));
+            size_t original_message_payload_size = NLMSG_PAYLOAD(&(error_payload.msg), 0);
             std::span<std::byte> original_message_span = std::span<std::byte>(data, original_message_payload_size);
             original_message = MessageContentView{
                 .content = original_message_span,
@@ -93,7 +95,7 @@ namespace ndisc
         std::vector<TLVView> attributes = parseTlvs(packet, payload_size);
         return ErrorView{
             .header = header,
-            .error = error_payload,
+            .message_error = error_payload,
             .original_content = original_message,
             .attributes = std::move(attributes),
         };
@@ -101,32 +103,42 @@ namespace ndisc
 
     NetlinkPacketView packetViewParser(std::span<std::byte> packet)
     {
-        nlmsghdr *header = reinterpret_cast<nlmsghdr *>(packet.data());
-        if (header->nlmsg_type == RTM_GETLINK || header->nlmsg_type == RTM_NEWLINK || header->nlmsg_type == RTM_DELLINK)
+        nlmsghdr header{};
+        std::memcpy(&header, packet.data(), sizeof(nlmsghdr));
+
+        // nlmsghdr *header = reinterpret_cast<nlmsghdr *>(packet.data());
+        if (header.nlmsg_type == RTM_GETLINK || header.nlmsg_type == RTM_NEWLINK || header.nlmsg_type == RTM_DELLINK)
         {
-            return parseLinkViewPacket(packet);
+            return LinkView{
+                .header = header,
+                .content = parseLinkViewPacket(packet),
+            };
         }
 
-        if (header->nlmsg_type == RTM_GETADDR || header->nlmsg_type == RTM_NEWADDR || header->nlmsg_type == RTM_DELADDR)
+        if (header.nlmsg_type == RTM_GETADDR || header.nlmsg_type == RTM_NEWADDR || header.nlmsg_type == RTM_DELADDR)
         {
-            return parseAddrViewPacket(packet);
+            return AddrView{
+                .header = header,
+                .content = parseAddrViewPacket(packet),
+            };
         }
 
-        if (header->nlmsg_type == NLMSG_DONE)
+        if (header.nlmsg_type == NLMSG_DONE)
         {
-            int *error = reinterpret_cast<int *>(NLMSG_DATA(header));
+            int error{};
+            std::memcpy(&error, NLMSG_DATA(packet.data()), sizeof(int));
             return DoneView{
                 .header = header,
                 .error = error,
             };
         }
 
-        if (header->nlmsg_type == NLMSG_ERROR)
+        if (header.nlmsg_type == NLMSG_ERROR)
         {
-            return parseErrorViewPacket(packet);
+            return parseErrorViewPacket(header, packet);
         }
-        size_t payload_size = NLMSG_PAYLOAD(header, 0);
-        std::byte *payload_start = reinterpret_cast<std::byte *>(NLMSG_DATA(header));
+        size_t payload_size = NLMSG_PAYLOAD(&header, 0);
+        std::byte *payload_start = reinterpret_cast<std::byte *>(NLMSG_DATA(packet.data()));
         std::span<std::byte> payload = std::span<std::byte>(payload_start, payload_size);
 
         return MessageView{
@@ -215,7 +227,7 @@ namespace ndisc
         return std::nullopt;
     }
 
-    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(std::function<void(std::span<std::byte>)> callback, uint32_t multicast_groups)
+    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(Callback callback, uint32_t multicast_groups)
     {
         int socket_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
         if (socket_fd < 0)
@@ -239,6 +251,7 @@ namespace ndisc
             std::cerr << "Failed to bind: errno " << errno << "\n";
             return std::unexpected(err);
         }
+
         return std::make_unique<NetlinkSocket>(NetlinkSocket(socket_fd, std::move(callback)));
     }
 
@@ -249,7 +262,7 @@ namespace ndisc
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
-            callback_(packet_from_buffer.value());
+            callback_(packetViewParser(packet_from_buffer.value()));
         }
         LoadBatch(*socket_fd_, data_buffer_);
         remaining_data_ = std::span<std::byte>(data_buffer_.begin(), data_buffer_.end());
@@ -257,7 +270,7 @@ namespace ndisc
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
-            callback_(packet_from_buffer.value()); // NOLINT(bugprone-unchecked-optional-access)
+            callback_(packetViewParser(packet_from_buffer.value())); // NOLINT(bugprone-unchecked-optional-access)
         }
     }
 

@@ -19,16 +19,79 @@
 namespace ndisc
 {
 
+    struct TLVView
+    {
+        rtattr attribute_header;
+        std::span<std::byte> value;
+    };
+
+    struct MessageContentView
+    {
+        std::span<std::byte> content;
+    };
+
+    struct MessageView
+    {
+        nlmsghdr header{};
+        MessageContentView content;
+    };
+
+    struct LinkContentView
+    {
+        ifinfomsg interface_info;
+        std::vector<TLVView> attributes;
+    };
+
+    struct LinkView
+    {
+        nlmsghdr header{};
+        LinkContentView content;
+    };
+
+    struct AddrContentView
+    {
+        ifaddrmsg address_info;
+        std::vector<TLVView> attributes;
+    };
+
+    struct AddrView
+    {
+        nlmsghdr header{};
+        AddrContentView content;
+    };
+
+    struct DoneView
+    {
+        nlmsghdr header{};
+        int error{};
+    };
+
+    struct ErrorView
+    {
+        nlmsghdr header{};
+        nlmsgerr message_error{};
+        std::optional<MessageContentView> original_content;
+        std::vector<TLVView> attributes;
+    };
+
+    using NetlinkPacketView =
+        std::variant<MessageView, LinkView, AddrView, ErrorView, DoneView>;
+
+    NetlinkPacketView packetViewParser(std::span<std::byte> packet);
+
     class NetlinkSocket final : public EventHandler
     {
+    public:
+        using Callback = std::function<void(ndisc::NetlinkPacketView)>;
+
     private:
         OwnedFileDescriptor socket_fd_;
         std::vector<std::byte> data_buffer_;
         std::span<std::byte> remaining_data_;
         int sequence_number_ = 1;
-        std::function<void(std::span<std::byte>)> callback_;
+        Callback callback_;
 
-        NetlinkSocket(OwnedFileDescriptor &&socket_fd, std::function<void(std::span<std::byte>)> callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
+        NetlinkSocket(OwnedFileDescriptor &&socket_fd, Callback callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
         {
         }
 
@@ -37,7 +100,7 @@ namespace ndisc
         static std::optional<std::span<std::byte>> TryLoadFromSpan(std::span<std::byte> &remaining_data);
 
     public:
-        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(std::function<void(std::span<std::byte>)> callback, uint32_t multicast_groups);
+        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(Callback callback, uint32_t multicast_groups);
 
         int GetSocket() const override
         {
@@ -62,66 +125,6 @@ namespace ndisc
 
         long SendGetAddrMessage();
     };
-
-    struct TLVView
-    {
-        rtattr *attribute_header;
-        std::span<std::byte> value;
-    };
-
-    struct MessageContentView
-    {
-        std::span<std::byte> content;
-    };
-
-    struct MessageView
-    {
-        nlmsghdr *header = nullptr;
-        MessageContentView content;
-    };
-
-    struct LinkContentView
-    {
-        ifinfomsg *interface_info;
-        std::vector<TLVView> attributes;
-    };
-
-    struct LinkView
-    {
-        nlmsghdr *header = nullptr;
-        LinkContentView content;
-    };
-
-    struct AddrContentView
-    {
-        ifaddrmsg *address_info;
-        std::vector<TLVView> attributes;
-    };
-
-    struct AddrView
-    {
-        nlmsghdr *header = nullptr;
-        AddrContentView content;
-    };
-
-    struct DoneView
-    {
-        nlmsghdr *header;
-        int *error;
-    };
-
-    struct ErrorView
-    {
-        nlmsghdr *header;
-        nlmsgerr *error;
-        std::optional<MessageContentView> original_content;
-        std::vector<TLVView> attributes;
-    };
-
-    using NetlinkPacketView =
-        std::variant<MessageView, LinkView, AddrView, ErrorView, DoneView>;
-
-    NetlinkPacketView packetViewParser(std::span<std::byte> packet);
 
     constexpr uint16_t MAX_TRANSMIT_CREDITS = 5;
     constexpr uint16_t FAST_TRANSMIT_AMOUNT = 4;
