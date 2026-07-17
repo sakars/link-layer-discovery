@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <expected>
+#include <functional>
 #include <map>
 #include <optional>
 
@@ -23,7 +24,7 @@ namespace ndisc
     struct DeviceReader
     {
 
-        std::shared_ptr<ndisc::NetlinkSocket> device_reader;
+        std::shared_ptr<ndisc::NetlinkSocket> reader_socket;
         std::optional<unsigned int> device_sequence_number = std::nullopt;
         ReaderState device_reader_state = ReaderState::IDLE;
         std::chrono::time_point<std::chrono::steady_clock> scheduled_link_dump = std::chrono::steady_clock::now();

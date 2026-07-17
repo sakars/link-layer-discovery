@@ -25,16 +25,19 @@ namespace ndisc
         std::span<std::byte> value;
     };
 
+    template <typename T>
+    struct NetlinkMessage
+    {
+        nlmsghdr header{};
+        T content;
+    };
+
     struct MessageContentView
     {
         std::span<std::byte> content;
     };
 
-    struct MessageView
-    {
-        nlmsghdr header{};
-        MessageContentView content;
-    };
+    using MessageView = NetlinkMessage<MessageContentView>;
 
     struct LinkContentView
     {
@@ -42,11 +45,7 @@ namespace ndisc
         std::vector<TLVView> attributes;
     };
 
-    struct LinkView
-    {
-        nlmsghdr header{};
-        LinkContentView content;
-    };
+    using LinkView = NetlinkMessage<LinkContentView>;
 
     struct AddrContentView
     {
@@ -54,25 +53,17 @@ namespace ndisc
         std::vector<TLVView> attributes;
     };
 
-    struct AddrView
-    {
-        nlmsghdr header{};
-        AddrContentView content;
-    };
+    using AddrView = NetlinkMessage<AddrContentView>;
 
-    struct DoneView
-    {
-        nlmsghdr header{};
-        int error{};
-    };
+    using DoneView = NetlinkMessage<int>;
 
-    struct ErrorView
+    struct ErrorContentView
     {
-        nlmsghdr header{};
         nlmsgerr message_error{};
         std::optional<MessageContentView> original_content;
         std::vector<TLVView> attributes;
     };
+    using ErrorView = NetlinkMessage<ErrorContentView>;
 
     using NetlinkPacketView =
         std::variant<MessageView, LinkView, AddrView, ErrorView, DoneView>;

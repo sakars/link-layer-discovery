@@ -95,9 +95,11 @@ namespace ndisc
         std::vector<TLVView> attributes = parseTlvs(packet, payload_size);
         return ErrorView{
             .header = header,
-            .message_error = error_payload,
-            .original_content = original_message,
-            .attributes = std::move(attributes),
+            .content = ErrorContentView{
+                .message_error = error_payload,
+                .original_content = original_message,
+                .attributes = std::move(attributes),
+            },
         };
     }
 
@@ -129,7 +131,7 @@ namespace ndisc
             std::memcpy(&error, NLMSG_DATA(packet.data()), sizeof(int));
             return DoneView{
                 .header = header,
-                .error = error,
+                .content = error,
             };
         }
 

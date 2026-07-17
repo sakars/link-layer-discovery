@@ -11,8 +11,8 @@ namespace ndisc
     {
         if (std::chrono::steady_clock::now() > scheduled_link_dump)
         {
-            device_reader->SendGetLinkDumpMessage();
-            device_sequence_number = device_reader->GetSequenceNumber();
+            reader_socket->SendGetLinkDumpMessage();
+            device_sequence_number = reader_socket->GetSequenceNumber();
             device_reader_state = ReaderState::READING;
             scheduled_link_dump = std::chrono::steady_clock::now() + 2min;
         }
@@ -47,7 +47,7 @@ namespace ndisc
             std::cerr << "No seq number?\n";
             return;
         }
-        unsigned int sequence_number = std::visit([&](auto packet)
+        unsigned int sequence_number = std::visit([]<typename T>(NetlinkMessage<T> packet)
                                                   { return packet.header.nlmsg_seq; }, packet);
         if (sequence_number != device_sequence_number.value())
         {
@@ -132,7 +132,7 @@ namespace ndisc
         {
             return;
         }
-        unsigned int sequence_number = std::visit([&](auto packet)
+        unsigned int sequence_number = std::visit([&]<typename T>(NetlinkMessage<T> packet)
                                                   { return packet.header.nlmsg_seq; }, packet);
         if (sequence_number != ip_sequence_number.value())
         {
@@ -169,7 +169,7 @@ namespace ndisc
         }
         else if (ndisc::ErrorView *error_view = std::get_if<ndisc::ErrorView>(&packet))
         {
-            std::cerr << "Failed to get address dump. " << error_view->message_error.error << " Retrying...\n";
+            std::cerr << "Failed to get address dump. " << error_view->content.message_error.error << " Retrying...\n";
             ip_reader_state = ReaderState::ERRORED;
             ExpediteAddrDump();
         }
@@ -195,7 +195,7 @@ namespace ndisc
         {
             return std::unexpected(device_socket.error());
         }
-        repository.device_reader.device_reader = std::move(device_socket.value());
+        repository.device_reader.reader_socket = std::move(device_socket.value());
 
         std::expected<std::unique_ptr<ndisc::NetlinkSocket>, int> ip_socket = ndisc::NetlinkSocket::Create([&repository](ndisc::NetlinkPacketView packet)
                                                                                                            { repository.UpdateAddressList(packet); },
@@ -206,7 +206,7 @@ namespace ndisc
         }
         repository.ip_reader.ip_reader = std::move(ip_socket.value());
 
-        std::expected<size_t, int> add_device_reader_result = manager.Add(repository.device_reader.device_reader);
+        std::expected<size_t, int> add_device_reader_result = manager.Add(repository.device_reader.reader_socket);
         if (!add_device_reader_result.has_value())
         {
             return std::unexpected(add_device_reader_result.error());
