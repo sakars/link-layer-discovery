@@ -15,7 +15,7 @@ namespace ndisc
                   << std::setw(18) << "MAC"
                   << std::setw(16) << "IP"
                   << '\n';
-        for (const auto &[idx, device] : device_repository_->devices)
+        for (const auto &[idx, device] : device_repository_->GetDevices())
         {
             std::cout << std::left << std::setw(4) << device.if_index
                       << std::setw(24) << device.interface_name.value_or("---");

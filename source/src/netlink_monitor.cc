@@ -229,7 +229,7 @@ namespace ndisc
         return std::nullopt;
     }
 
-    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(Callback callback, uint32_t multicast_groups)
+    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(uint32_t multicast_groups)
     {
         int socket_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
         if (socket_fd < 0)
@@ -254,17 +254,22 @@ namespace ndisc
             return std::unexpected(err);
         }
 
-        return std::make_unique<NetlinkSocket>(NetlinkSocket(socket_fd, std::move(callback)));
+        return std::make_unique<NetlinkSocket>(NetlinkSocket(socket_fd));
     }
 
     void NetlinkSocket::Call()
     {
+        if (!callback_.has_value())
+        {
+            std::cerr << "NetlinkSocket lacks callback\n";
+            return;
+        }
         // empty current span
         for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
-            callback_(packetViewParser(packet_from_buffer.value()));
+            (*callback_)(packetViewParser(packet_from_buffer.value()));
         }
         LoadBatch(*socket_fd_, data_buffer_);
         remaining_data_ = std::span<std::byte>(data_buffer_.begin(), data_buffer_.end());
@@ -272,7 +277,7 @@ namespace ndisc
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
-            callback_(packetViewParser(packet_from_buffer.value())); // NOLINT(bugprone-unchecked-optional-access)
+            (*callback_)(packetViewParser(packet_from_buffer.value())); // NOLINT(bugprone-unchecked-optional-access)
         }
     }
 
@@ -362,21 +367,30 @@ namespace ndisc
         return bytes_sent;
     }
 
-    std::optional<LldpSender> LldpSender::Create()
+    void LldpSender::Update(const DeviceData &new_device_data)
     {
-        OwnedFileDescriptor socket_fd{socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))};
-        if (!socket_fd.IsValid())
+        bool any_changed = false;
+        if (device_data_.interface_name != new_device_data.interface_name)
         {
-            return std::nullopt;
+            any_changed = true;
+            device_data_.interface_name = new_device_data.interface_name;
         }
-        return LldpSender(std::move(socket_fd));
+        if (device_data_.ip_address != new_device_data.ip_address)
+        {
+            any_changed = true;
+            device_data_.ip_address = new_device_data.ip_address;
+        }
+        if (any_changed)
+        {
+            LocalChangeDetected();
+        }
     }
 
     constexpr std::byte PORT_ID_MAC_TYPE{0x03};
 
-    void LldpSender::SendLldp(unsigned int interface, const std::array<std::byte, ETH_ALEN> &mac, const std::optional<std::array<std::byte, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
+    void LldpSender::SendLldp(uint16_t ttl) const
     {
-        if (interface > INT_MAX)
+        if (device_data_.if_index > INT_MAX || !device_data_.mac_address.has_value())
         {
             return;
         }
@@ -384,7 +398,7 @@ namespace ndisc
         LLDPEthernetFrame frame{};
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
         // std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
-        std::memcpy(std::begin(frame.header.ether_shost), mac.data(), mac.size());
+        std::memcpy(std::begin(frame.header.ether_shost), device_data_.mac_address.value().data(), device_data_.mac_address.value().size());
         frame.header.ether_type = htons(ETH_P_LLDP);
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
         std::string chassis = getMachineId();
@@ -396,17 +410,17 @@ namespace ndisc
         frame.data_unit.port_id.value.resize(1 + ETH_ALEN);
         frame.data_unit.port_id.value[0] = PORT_ID_MAC_TYPE;
         // std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
-        std::memcpy(std::next(frame.data_unit.port_id.value.data(), 1), mac.data(), ETH_ALEN);
+        std::memcpy(std::next(frame.data_unit.port_id.value.data(), 1), device_data_.mac_address.value().data(), ETH_ALEN);
         frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
         frame.data_unit.time_to_live.value.resize(sizeof(ttl));
         const std::array<std::byte, sizeof(ttl)> network_ttl = std::bit_cast<std::array<std::byte, sizeof(ttl)>>(htons(ttl));
         std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
-        if (ip_address.has_value())
+        if (device_data_.ip_address.has_value())
         {
             LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(sizeof(in_addr));
-            std::copy(ip_address->begin(), ip_address->end(), management_tlv.value.begin());
+            std::copy(device_data_.ip_address->begin(), device_data_.ip_address->end(), management_tlv.value.begin());
             frame.data_unit.optional_tlv.push_back(management_tlv);
         }
         const std::vector<std::byte> frame_buffer = frame.ToFrameBuffer();
@@ -414,83 +428,80 @@ namespace ndisc
         address.sll_family = AF_PACKET;
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));
         address.sll_halen = multicast_address.size();
-        address.sll_ifindex = static_cast<int>(interface);
+        address.sll_ifindex = static_cast<int>(device_data_.if_index);
         address.sll_protocol = htons(ETH_P_LLDP);
-        ssize_t bytes = sendto(*socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+        ssize_t bytes = sendto(**socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
         if (bytes < 0)
         {
             std::cout << "errno: " << errno << "\n";
         }
     }
 
-    void DeviceData::EndTransmission()
+    void LldpSender::EndTransmission() const
     {
-        if (lldp_sender.has_value() && mac_address.has_value())
+        if (device_data_.mac_address.has_value())
         {
-            lldp_sender->SendLldp(if_index, *mac_address, ip_address, 0);
+            SendLldp(0);
         }
     }
 
-    void DeviceData::TryTransmit()
+    void LldpSender::TryTransmit()
     {
-        if (trigger_ready && transmit_credits > 0 && mac_address.has_value())
+        if (trigger_ready_ && transmit_credits_ > 0 && device_data_.mac_address.has_value())
         {
-            trigger_ready = false;
-            transmit_credits--;
-            if (lldp_sender.has_value())
-            {
-                std::cout << "Transmitting lldp via device " << if_index << "\n";
-                lldp_sender->SendLldp(if_index, *mac_address, ip_address, TARGET_TTL);
-            }
+            trigger_ready_ = false;
+            transmit_credits_--;
+            std::cout << "Transmitting lldp via device " << device_data_.if_index << "\n";
+            SendLldp(TARGET_TTL);
         }
     }
 
-    void DeviceData::TriggerTransmission()
+    void LldpSender::TriggerTransmission()
     {
-        if (fast_forward_counter > 0)
+        if (fast_forward_counter_ > 0)
         {
-            transmit_timer = MESSAGE_FAST_INTERVAL;
+            transmit_timer_ = MESSAGE_FAST_INTERVAL;
         }
         else
         {
-            transmit_timer = MESSAGE_TRANSMIT_INTERVAL;
+            transmit_timer_ = MESSAGE_TRANSMIT_INTERVAL;
         }
-        trigger_ready = true;
+        trigger_ready_ = true;
         TryTransmit();
     }
-    void DeviceData::TimerExpired()
+    void LldpSender::TimerExpired()
     {
-        if (fast_forward_counter > 0)
+        if (fast_forward_counter_ > 0)
         {
-            fast_forward_counter--;
+            fast_forward_counter_--;
         }
         TriggerTransmission();
     }
-    void DeviceData::NewNeighbour()
+    void LldpSender::NewNeighbour()
     {
-        if (fast_forward_counter == 0)
+        if (fast_forward_counter_ == 0)
         {
-            fast_forward_counter = FAST_TRANSMIT_AMOUNT;
+            fast_forward_counter_ = FAST_TRANSMIT_AMOUNT;
         }
         TimerExpired();
     }
 
-    void DeviceData::LocalChangeDetected()
+    void LldpSender::LocalChangeDetected()
     {
         TriggerTransmission();
     }
 
-    void DeviceData::Tick()
+    void LldpSender::Tick()
     {
-        if (transmit_credits < MAX_TRANSMIT_CREDITS)
+        if (transmit_credits_ < MAX_TRANSMIT_CREDITS)
         {
-            transmit_credits += 1;
+            transmit_credits_ += 1;
         }
-        if (transmit_timer > 0)
+        if (transmit_timer_ > 0)
         {
-            transmit_timer--;
+            transmit_timer_--;
         }
-        if (transmit_timer == 0)
+        if (transmit_timer_ == 0)
         {
             TimerExpired();
         }

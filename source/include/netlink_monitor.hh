@@ -73,16 +73,16 @@ namespace ndisc
     class NetlinkSocket final : public EventHandler
     {
     public:
-        using Callback = std::function<void(ndisc::NetlinkPacketView)>;
+        using Callback = std::function<void(NetlinkPacketView)>;
 
     private:
         OwnedFileDescriptor socket_fd_;
         std::vector<std::byte> data_buffer_;
         std::span<std::byte> remaining_data_;
         int sequence_number_ = 1;
-        Callback callback_;
+        std::optional<Callback> callback_;
 
-        NetlinkSocket(OwnedFileDescriptor &&socket_fd, Callback callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
+        NetlinkSocket(OwnedFileDescriptor &&socket_fd) : socket_fd_(std::move(socket_fd))
         {
         }
 
@@ -91,7 +91,12 @@ namespace ndisc
         static std::optional<std::span<std::byte>> TryLoadFromSpan(std::span<std::byte> &remaining_data);
 
     public:
-        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(Callback callback, uint32_t multicast_groups);
+        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(uint32_t multicast_groups);
+
+        void SetCallback(Callback callback)
+        {
+            callback_ = std::move(callback);
+        }
 
         int GetSocket() const override
         {
@@ -124,31 +129,35 @@ namespace ndisc
     constexpr uint16_t MESSAGE_TRANSMIT_INTERVAL = TARGET_TTL / PACKET_HOLD_AMOUNT;
     constexpr uint16_t MESSAGE_FAST_INTERVAL = 1;
 
-    class LldpSender
-    {
-        OwnedFileDescriptor socket_fd_;
-
-        LldpSender(OwnedFileDescriptor &&socket) : socket_fd_(std::move(socket)) {}
-
-    public:
-        static std::optional<LldpSender> Create();
-
-        void SendLldp(unsigned int interface, const std::array<std::byte, ETH_ALEN> &mac, const std::optional<std::array<std::byte, sizeof(in_addr)>> &ip_address, uint16_t ttl) const;
-    };
-
     struct DeviceData
     {
         std::optional<std::array<std::byte, ETH_ALEN>> mac_address = std::nullopt;
         std::optional<std::array<std::byte, sizeof(in_addr)>> ip_address = std::nullopt;
         std::optional<std::string> interface_name = std::nullopt;
-        std::optional<LldpSender> lldp_sender = std::nullopt;
-        unsigned int if_index;
-        uint16_t transmit_timer = 0;
-        uint16_t transmit_credits = 0;
-        uint16_t fast_forward_counter = 0;
-        bool trigger_ready = false;
+        unsigned int if_index{};
+    };
 
-        void EndTransmission();
+    class LldpSender
+    {
+        OwnedFileDescriptor *socket_fd_;
+        DeviceData device_data_;
+        uint16_t transmit_timer_ = 0;
+        uint16_t transmit_credits_ = 0;
+        uint16_t fast_forward_counter_ = 0;
+        bool trigger_ready_ = false;
+
+    public:
+        LldpSender(OwnedFileDescriptor &socket, const DeviceData &device_data) : socket_fd_(&socket), device_data_(device_data)
+        {
+            NewNeighbour();
+        }
+        // static std::optional<LldpSender> Create(OwnedFileDescriptor &socket, const DeviceData &device_data);
+
+        void Update(const DeviceData &);
+
+        void SendLldp(uint16_t ttl) const;
+
+        void EndTransmission() const;
 
         void TryTransmit();
 

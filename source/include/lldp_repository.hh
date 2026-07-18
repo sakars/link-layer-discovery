@@ -8,11 +8,15 @@
 
 namespace ndisc
 {
-    struct LldpRepository
+    class LldpRepository
     {
-        std::map<unsigned int, ndisc::DeviceData> current_state;
+        OwnedFileDescriptor ethernet_broadcast_socket_;
+        std::map<unsigned int, LldpSender> current_state_;
 
-        void CheckSocketForTxReady(unsigned int idx);
+        LldpRepository(OwnedFileDescriptor &&ethernet_socket) : ethernet_broadcast_socket_(std::move(ethernet_socket)) {}
+
+    public:
+        static std::expected<LldpRepository, int> Create();
 
         void MarkChangedLldpStateMachine(unsigned int idx);
 
@@ -20,7 +24,7 @@ namespace ndisc
 
         void CreateLldpStateMachine(unsigned int idx);
 
-        void UpdateState(std::map<unsigned int, ndisc::DeviceData> &new_state);
+        void UpdateState(const std::map<unsigned int, DeviceData> &new_state);
 
         void Tick();
     };

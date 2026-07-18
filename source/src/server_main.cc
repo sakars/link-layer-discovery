@@ -56,7 +56,12 @@ int main()
 
     std::cout << "Ethernet LLDP monitor initialized" << "\n";
 
-    ndisc::LldpRepository lldp;
+    std::expected<ndisc::LldpRepository, int> lldp_create_result = ndisc::LldpRepository::Create();
+    if (!lldp_create_result.has_value())
+    {
+        std::cerr << "Failed to create LldpRepository\n";
+    }
+    ndisc::LldpRepository lldp = std::move(*lldp_create_result);
 
     std::shared_ptr<ndisc::ClockHandler> clock = ndisc::ClockHandler::Create(neighbour_list, *repository, lldp);
     if (clock == nullptr)
