@@ -42,12 +42,16 @@ namespace netlink
             other.device_update_callback_.reset();
             other.end_of_device_dump_callback_.reset();
             other.dump_errored_callback_.reset();
+            BindReaderSocketCallback();
         }
         DeviceReader &operator=(const DeviceReader &) = delete;
         DeviceReader &operator=(DeviceReader &&) = delete;
         ~DeviceReader()
         {
-            reader_socket_->ClearCallback();
+            if (reader_socket_ != nullptr)
+            {
+                reader_socket_->ClearCallback();
+            }
         }
 
         static std::expected<std::unique_ptr<netlink::DeviceReader>, int> Create(ndisc::EventManager &manager);
