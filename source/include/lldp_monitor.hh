@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cstddef>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -29,11 +30,11 @@ namespace ndisc
     class EthernetLldpMonitor final : public EventHandler
     {
     public:
-        using Callback = std::function<void(const sockaddr_ll &, std::span<const uint8_t>)>;
+        using Callback = std::function<void(const sockaddr_ll &, std::span<const std::byte>)>;
 
     private:
         OwnedFileDescriptor socket_fd_;
-        std::vector<uint8_t> message_buffer_;
+        std::vector<std::byte> message_buffer_;
         Callback callback_;
 
         EthernetLldpMonitor(OwnedFileDescriptor &&socket_fd, Callback callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
@@ -53,18 +54,18 @@ namespace ndisc
 
     struct NeighbourEntry
     {
-        std::vector<uint8_t> chassis_id;
-        std::vector<uint8_t> port_id;
+        std::vector<std::byte> chassis_id;
+        std::vector<std::byte> port_id;
         uint16_t time_to_live = 0;
-        std::optional<std::array<uint8_t, sizeof(in_addr)>> ip_address;
+        std::optional<std::array<std::byte, sizeof(in_addr)>> ip_address;
     };
 
     struct NeighbourList
     {
-        std::map<std::vector<uint8_t>, std::map<std::vector<uint8_t>, NeighbourEntry>> chassis_map;
+        std::map<std::vector<std::byte>, std::map<std::vector<std::byte>, NeighbourEntry>> chassis_map;
     };
 
-    void lldpFrameParser(NeighbourList &neighbour_list, const sockaddr_ll &address, std::span<const uint8_t> frame);
+    void lldpFrameParser(NeighbourList &neighbour_list, const sockaddr_ll &address, std::span<const std::byte> frame);
 
 } // namespace ndisc
 

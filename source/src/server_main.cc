@@ -56,23 +56,6 @@ int main()
 
     std::cout << "Ethernet LLDP monitor initialized" << "\n";
 
-    ndisc::LldpRepository lldp;
-
-    std::shared_ptr<ndisc::ClockHandler> clock = ndisc::ClockHandler::Create(neighbour_list, *repository, lldp);
-    if (clock == nullptr)
-    {
-        std::cerr << "Clock is nullptr\n";
-        return -1;
-    }
-    std::expected<uint64_t, int> clock_add_handle = manager.Add(clock);
-    if (!clock_add_handle.has_value())
-    {
-        std::cerr << "Failed to add Clock monitor, errno: " << clock_add_handle.error() << "\n";
-        return -1;
-    }
-
-    std::cout << "Clock handler initialized" << "\n";
-
     std::expected<std::unique_ptr<ndisc::data::DataTransportRepository>, int> dtr_result = ndisc::data::DataTransportRepository::Create(manager);
     if (!dtr_result.has_value())
     {
@@ -102,6 +85,27 @@ int main()
     std::shared_ptr<ndisc::data::DataTransportListenSocket> dtls = std::move(*dtls_result);
 
     std::cout << "DTLS initialized" << "\n";
+    std::expected<ndisc::LldpRepository, int> lldp_create_result = ndisc::LldpRepository::Create(std::move(repository));
+    if (!lldp_create_result.has_value())
+    {
+        std::cerr << "Failed to create LldpRepository\n";
+    }
+    ndisc::LldpRepository lldp = std::move(*lldp_create_result);
+
+    std::shared_ptr<ndisc::ClockHandler> clock = ndisc::ClockHandler::Create(neighbour_list, lldp);
+    if (clock == nullptr)
+    {
+        std::cerr << "Clock is nullptr\n";
+        return -1;
+    }
+    std::expected<uint64_t, int> clock_add_handle = manager.Add(clock);
+    if (!clock_add_handle.has_value())
+    {
+        std::cerr << "Failed to add Clock monitor, errno: " << clock_add_handle.error() << "\n";
+        return -1;
+    }
+
+    std::cout << "Clock handler initialized" << "\n";
 
     std::expected<uint64_t, int> dtr_handle = manager.Add(dtr);
     std::expected<uint64_t, int> dtls_handle = manager.Add(dtls);

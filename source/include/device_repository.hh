@@ -3,9 +3,14 @@
 
 #include <chrono>
 #include <expected>
+#include <functional>
 #include <map>
+#include <memory>
 #include <optional>
+#include <utility>
 
+#include "device_reader.hh"
+#include "ip_reader.hh"
 #include "netlink_monitor.hh"
 
 using namespace std::chrono_literals;
@@ -13,65 +18,143 @@ using namespace std::chrono_literals;
 namespace ndisc
 {
 
-    std::function<void(std::span<uint8_t>)> packetConverter(std::function<void(ndisc::NetlinkPacketView)> CALLBACK);
-
-    enum class ReaderState : uint8_t
+    class DeviceRepository
     {
-        IDLE,
-        READING,
-        ERRORED,
-    };
+        int sync_timeout_ = -1;
+        std::shared_ptr<netlink::NetlinkSocket> monitor_;
 
-    struct DeviceReader
-    {
+        std::unique_ptr<netlink::DeviceReader> device_reader_;
+        std::unique_ptr<netlink::IpReader> ip_reader_;
+        std::map<unsigned int, netlink::DeviceData> devices_;
+        std::optional<std::function<void(const std::map<unsigned int, netlink::DeviceData> &)>> synchronization_callback_;
 
-        std::shared_ptr<ndisc::NetlinkSocket> device_reader;
-        std::optional<unsigned int> device_sequence_number = std::nullopt;
-        ReaderState device_reader_state = ReaderState::IDLE;
-        std::chrono::time_point<std::chrono::steady_clock> scheduled_link_dump = std::chrono::steady_clock::now();
+        void BindCallbacks()
+        {
+            if (device_reader_ != nullptr)
+            {
+                device_reader_->SetDeviceUpdateCallback([this](const netlink::LinkView &link)
+                                                        { this->HandleLinkPacket(link); });
+                device_reader_->SetEndOfDumpCallback([this]()
+                                                     { this->DeviceReaderFinished(); });
+                device_reader_->SetDumpErroredCallback([this]()
+                                                       { this->DeviceReaderErrored(); });
+            }
+            if (ip_reader_ != nullptr)
+            {
+                ip_reader_->SetAddressUpdateCallback([this](const netlink::AddrView &addr)
+                                                     { this->HandleAddressPacket(addr); });
+                ip_reader_->SetEndOfIpDumpCallback([this]()
+                                                   { this->IpReaderFinished(); });
+                ip_reader_->SetDumpErroredCallback([this]()
+                                                   { this->IpReaderErrored(); });
+            }
+            if (monitor_ != nullptr)
+            {
+                monitor_->SetCallback([this](const netlink::NetlinkPacketView &packet)
+                                      { this->HandleMonitorPackets(packet); });
+            }
+        }
 
-        bool devices_updated = false;
+        void ClearCallbacks()
+        {
+            if (device_reader_ != nullptr)
+            {
+                device_reader_->ClearDeviceUpdateCallback();
+                device_reader_->ClearDumpErroredCallback();
+                device_reader_->ClearEndOfDumpCallback();
+            }
+            if (ip_reader_ != nullptr)
+            {
+                ip_reader_->ClearAddressUpdateCallback();
+                ip_reader_->ClearDumpErroredCallback();
+                ip_reader_->ClearEndOfIpDumpCallback();
+            }
+            if (monitor_ != nullptr)
+            {
+                monitor_->ClearCallback();
+            }
+        }
 
-        DeviceReader() {}
+        void ScheduleResync();
+        void ScheduleExpediteResync();
+        void RequestDeviceDump();
+        void RequestIpDump();
+
+        void DeviceReaderFinished();
+        void DeviceReaderErrored();
+
+        void IpReaderFinished();
+        void IpReaderErrored();
+
+        DeviceRepository(
+            std::shared_ptr<netlink::NetlinkSocket> monitor_socket,
+            std::unique_ptr<netlink::DeviceReader> device_reader,
+            std::unique_ptr<netlink::IpReader> ip_reader) : monitor_(std::move(monitor_socket)),
+                                                            device_reader_(std::move(device_reader)),
+                                                            ip_reader_(std::move(ip_reader))
+        {
+            BindCallbacks();
+        }
+
+    public:
+        DeviceRepository(const DeviceRepository &) = delete;
+        DeviceRepository(DeviceRepository &&other) noexcept : sync_timeout_(other.sync_timeout_),
+                                                              monitor_(std::move(other.monitor_)),
+                                                              device_reader_(std::move(other.device_reader_)),
+                                                              ip_reader_(std::move(other.ip_reader_)),
+                                                              devices_(std::move(other.devices_))
+        {
+            other.sync_timeout_ = -1;
+            other.monitor_.reset();
+            other.device_reader_.reset();
+            other.ip_reader_.reset();
+            other.devices_.clear();
+            BindCallbacks();
+        }
+        DeviceRepository &operator=(const DeviceRepository &) = delete;
+        DeviceRepository &operator=(DeviceRepository &&other)
+        {
+            ClearCallbacks();
+            other.ClearCallbacks();
+            sync_timeout_ = other.sync_timeout_;
+            monitor_ = std::move(other.monitor_);
+            device_reader_ = std::move(other.device_reader_);
+            ip_reader_ = std::move(other.ip_reader_);
+            devices_ = std::move(other.devices_);
+            other.sync_timeout_ = -1;
+            other.monitor_.reset();
+            other.device_reader_.reset();
+            other.ip_reader_.reset();
+            other.devices_.clear();
+            BindCallbacks();
+            return *this;
+        };
+        ~DeviceRepository()
+        {
+            ClearCallbacks();
+        }
+
+        static std::expected<std::unique_ptr<DeviceRepository>, int> Create(EventManager &manager);
 
         void Tick();
 
-        void ExpediteLinkDump();
+        void HandleMonitorPackets(const netlink::NetlinkPacketView &packet);
 
-        void UpdateDeviceList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView packet);
-    };
+        void HandleLinkPacket(const netlink::LinkView &);
 
-    struct IpReader
-    {
-        ReaderState ip_reader_state = ReaderState::IDLE;
-        std::optional<unsigned int> ip_sequence_number = std::nullopt;
-        std::chrono::time_point<std::chrono::steady_clock> scheduled_addr_dump = std::chrono::steady_clock::now() + 2min;
-        std::shared_ptr<ndisc::NetlinkSocket> ip_reader;
+        void HandleAddressPacket(const netlink::AddrView &);
 
-        void Tick();
-        void ExpediteAddrDump();
+        const std::map<unsigned int, netlink::DeviceData> &GetDevices() const { return devices_; }
 
-        void UpdateAddressList(std::map<unsigned int, ndisc::DeviceData> &devices, ndisc::NetlinkPacketView &packet);
-    };
+        void SetSyncCallback(std::function<void(const std::map<unsigned int, netlink::DeviceData> &)> callback)
+        {
+            synchronization_callback_ = std::move(callback);
+        }
 
-    struct DeviceRepository
-    {
-
-        std::shared_ptr<ndisc::NetlinkSocket> monitor;
-
-        DeviceReader device_reader;
-        IpReader ip_reader;
-        std::map<unsigned int, ndisc::DeviceData> devices;
-
-        static std::expected<std::unique_ptr<DeviceRepository>, int> Create(ndisc::EventManager &manager);
-
-        void Tick();
-
-        void HandleMonitorPackets(ndisc::NetlinkPacketView packet);
-
-        void UpdateDeviceList(ndisc::NetlinkPacketView packet);
-
-        void UpdateAddressList(ndisc::NetlinkPacketView &packet);
+        void ClearSyncCallback()
+        {
+            synchronization_callback_ = std::nullopt;
+        }
     };
 
 } // namespace ndisc

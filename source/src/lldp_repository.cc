@@ -1,84 +1,62 @@
 #include "lldp_repository.hh"
 
+#include <iostream>
+
 namespace ndisc
 {
-    void LldpRepository::CheckSocketForTxReady(unsigned int idx)
+    std::expected<LldpRepository, int> LldpRepository::Create(std::unique_ptr<DeviceRepository> device_repository)
     {
-        if (current_state.contains(idx))
+        OwnedFileDescriptor eth_broadcast_fd{socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))};
+        if (!eth_broadcast_fd.IsValid())
         {
-            ndisc::DeviceData &device_data = current_state[idx];
-            if (!device_data.lldp_sender.has_value() && device_data.interface_name.has_value())
-            {
-                // device_data.lldp_sender = ndisc::LldpSender::Create();
-                std::optional<ndisc::LldpSender> sender = ndisc::LldpSender::Create();
-                if (sender.has_value())
-                {
-                    device_data.lldp_sender = std::move(*sender);
-                }
-            }
+            return std::unexpected(errno);
         }
+        return LldpRepository(std::move(eth_broadcast_fd), std::move(device_repository));
     }
 
     void LldpRepository::MarkChangedLldpStateMachine(unsigned int idx)
     {
-        CheckSocketForTxReady(idx);
-        if (current_state.contains(idx))
+        if (current_state_.contains(idx))
         {
-            current_state[idx].LocalChangeDetected();
+            current_state_.at(idx).LocalChangeDetected();
         }
     }
 
     void LldpRepository::DeleteLldpStateMachine(unsigned int idx)
     {
-        CheckSocketForTxReady(idx);
-        if (current_state.contains(idx))
+        if (current_state_.contains(idx))
         {
-            current_state[idx].EndTransmission();
+            current_state_.at(idx).EndTransmission();
+            current_state_.erase(idx);
         }
-        current_state.erase(idx);
     }
 
     void LldpRepository::CreateLldpStateMachine(unsigned int idx)
     {
-        CheckSocketForTxReady(idx);
-        if (current_state.contains(idx))
+        if (current_state_.contains(idx))
         {
-            ndisc::DeviceData &device_data = current_state[idx];
-            device_data.NewNeighbour();
+            netlink::LldpSender &lldp_sender = current_state_.at(idx);
+            lldp_sender.NewNeighbour();
         }
     }
 
-    void LldpRepository::UpdateState(std::map<unsigned int, ndisc::DeviceData> &new_state)
+    void LldpRepository::UpdateState(const std::map<unsigned int, netlink::DeviceData> &new_state)
     {
-        for (auto &[index, new_device_state] : new_state)
+        for (const auto &[index, new_device_state] : new_state)
         {
-            if (current_state.contains(index))
+            if (current_state_.contains(index))
             {
-                bool any_changed = false;
-                ndisc::DeviceData &device_state = current_state.at(index);
-                if (device_state.interface_name != new_device_state.interface_name)
-                {
-                    any_changed = true;
-                    device_state.interface_name = new_device_state.interface_name;
-                }
-                if (device_state.ip_address != new_device_state.ip_address)
-                {
-                    any_changed = true;
-                    device_state.ip_address = new_device_state.ip_address;
-                }
-                if (any_changed)
-                {
-                    MarkChangedLldpStateMachine(index);
-                }
+                netlink::LldpSender &lldp_sender = current_state_.at(index);
+                lldp_sender.Update(new_device_state);
             }
             else
             {
-                current_state[index] = std::move(new_device_state);
+                current_state_.emplace(index, netlink::LldpSender(ethernet_broadcast_socket_, new_device_state));
                 CreateLldpStateMachine(index);
             }
         }
         std::vector<unsigned int> deletables{};
-        for (auto &[index, current_device_state] : current_state)
+        for (auto &[index, current_device_state] : current_state_)
         {
             if (!new_state.contains(index))
             {
@@ -93,19 +71,14 @@ namespace ndisc
 
     void LldpRepository::Tick()
     {
-        for (auto &[idx, device] : current_state)
+        if (device_repository_ != nullptr)
+        {
+            device_repository_->Tick();
+        }
+        for (auto &[idx, device] : current_state_)
         {
             device.Tick();
         }
     }
 
-    void lldpStateUpdater(LldpRepository &lldp, DeviceRepository &repository)
-    {
-        if (
-            repository.device_reader.device_reader_state == ReaderState::IDLE &&
-            repository.ip_reader.ip_reader_state == ReaderState::IDLE)
-        {
-            lldp.UpdateState(repository.devices);
-        }
-    }
 } // namespace ndisc
