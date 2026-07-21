@@ -42,12 +42,31 @@ namespace netlink
             other.address_update_callback_.reset();
             other.end_of_ip_dump_callback_.reset();
             other.dump_errored_callback_.reset();
+            BindReaderSocketCallback();
         }
         IpReader &operator=(const IpReader &) = delete;
-        IpReader &operator=(IpReader &&) = delete;
+        IpReader &operator=(IpReader &&other)
+        {
+            reader_socket_ = std::move(other.reader_socket_);
+            dump_request_sequence_number_ = other.dump_request_sequence_number_;
+            dump_read_timeout_ = other.dump_read_timeout_;
+            address_update_callback_ = std::move(other.address_update_callback_);
+            end_of_ip_dump_callback_ = std::move(other.end_of_ip_dump_callback_);
+            dump_errored_callback_ = std::move(other.dump_errored_callback_);
+            other.reader_socket_.reset();
+            other.dump_request_sequence_number_.reset();
+            other.dump_read_timeout_ = -1;
+            other.address_update_callback_.reset();
+            other.end_of_ip_dump_callback_.reset();
+            other.dump_errored_callback_.reset();
+            return *this;
+        };
         ~IpReader()
         {
-            reader_socket_->ClearCallback();
+            if (reader_socket_ != nullptr)
+            {
+                reader_socket_->ClearCallback();
+            }
         }
 
         static std::expected<std::unique_ptr<IpReader>, int> Create(ndisc::EventManager &manager);
