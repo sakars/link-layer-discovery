@@ -98,11 +98,13 @@ namespace ndisc
 
     public:
         DeviceRepository(const DeviceRepository &) = delete;
-        DeviceRepository(DeviceRepository &&other) noexcept : monitor_(std::move(other.monitor_)),
+        DeviceRepository(DeviceRepository &&other) noexcept : sync_timeout_(other.sync_timeout_),
+                                                              monitor_(std::move(other.monitor_)),
                                                               device_reader_(std::move(other.device_reader_)),
                                                               ip_reader_(std::move(other.ip_reader_)),
                                                               devices_(std::move(other.devices_))
         {
+            other.sync_timeout_ = -1;
             other.monitor_.reset();
             other.device_reader_.reset();
             other.ip_reader_.reset();
@@ -114,10 +116,12 @@ namespace ndisc
         {
             ClearCallbacks();
             other.ClearCallbacks();
+            sync_timeout_ = other.sync_timeout_;
             monitor_ = std::move(other.monitor_);
             device_reader_ = std::move(other.device_reader_);
             ip_reader_ = std::move(other.ip_reader_);
             devices_ = std::move(other.devices_);
+            other.sync_timeout_ = -1;
             other.monitor_.reset();
             other.device_reader_.reset();
             other.ip_reader_.reset();
