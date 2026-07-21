@@ -6,253 +6,135 @@
 
 namespace ndisc
 {
-    constexpr int DEVICE_READER_DUMP_TIMER = 120;
-    constexpr int DEVICE_READER_EXPEDITE_TIMER = 2;
-    constexpr int IP_READER_DUMP_TIMER = 30;
-    constexpr int IP_READER_EXPEDITE_TIMER = 2;
+    static constexpr int DEVICE_REPOSITORY_SYNC_TIMEOUT = 120;
+    static constexpr int DEVICE_REPOSITORY_EXPEDITE_TIMEOUT = 5;
 
-    std::expected<std::shared_ptr<DeviceReader>, int> DeviceReader::Create(EventManager &manager)
+    void DeviceRepository::ScheduleResync()
     {
-        std::expected<std::unique_ptr<NetlinkSocket>, int> device_socket_result = ndisc::NetlinkSocket::Create(0);
-
-        if (!device_socket_result.has_value() || device_socket_result.value() == nullptr)
-        {
-            return std::unexpected(device_socket_result.error());
-        }
-        std::shared_ptr<NetlinkSocket> device_socket = std::move(*device_socket_result);
-        std::expected<size_t, int> add_result = manager.Add(device_socket);
-        if (!add_result.has_value())
-        {
-            return std::unexpected(add_result.error());
-        }
-        return std::make_shared<DeviceReader>(DeviceReader(std::move(device_socket)));
+        sync_timeout_ = DEVICE_REPOSITORY_SYNC_TIMEOUT;
     }
 
-    void DeviceReader::ReceivePacket(NetlinkPacketView packet)
+    void DeviceRepository::ScheduleExpediteResync()
     {
-        if (reader_state_ != ReaderState::READING)
+        sync_timeout_ = DEVICE_REPOSITORY_EXPEDITE_TIMEOUT;
+    }
+
+    void DeviceRepository::RequestDeviceDump()
+    {
+        if (device_reader_ != nullptr)
         {
-            std::cerr << "Bad device reader state: ";
-            if (reader_state_ == ReaderState::ERRORED)
+            std::expected<void, int> dump_result = device_reader_->TriggerDump();
+            if (!dump_result.has_value())
             {
-                std::cerr << "errored\n";
-            }
-            else if (reader_state_ == ReaderState::IDLE)
-            {
-                std::cerr << "idle\n";
-            }
-            else
-            {
-                std::cerr << "weird " << uint64_t(reader_state_) << "\n";
-            }
-            return;
-        }
-        if (!request_sequence_number_.has_value())
-        {
-            std::cerr << "No seq number?\n";
-            return;
-        }
-        unsigned int sequence_number = std::visit([]<typename T>(NetlinkMessage<T> packet)
-                                                  { return packet.header.nlmsg_seq; }, packet);
-        if (sequence_number != request_sequence_number_.value())
-        {
-            std::cerr << "Device sequence number mismatch. Possible bug..\n";
-            return;
-        }
-        if (ndisc::LinkView *link_message = std::get_if<ndisc::LinkView>(&packet))
-        {
-            if (callback_.has_value())
-            {
-                (*callback_)(*link_message);
-            }
-            else
-            {
-                std::cout << "Link message got skipped as no callback is assigned.\n";
+                std::cerr << "Failed to issue device dump. " << dump_result.error() << "\n";
             }
         }
-        else if (std::get_if<ndisc::DoneView>(&packet) != nullptr)
+        else
         {
-            request_sequence_number_ = std::nullopt;
-            reader_state_ = ReaderState::IDLE;
-        }
-        else if (std::get_if<ndisc::ErrorView>(&packet) != nullptr)
-        {
-            std::cerr << "Failed to get link dump. Retrying...\n";
-            reader_state_ = ReaderState::ERRORED;
-            ExpediteLinkDump();
+            std::cerr << "Device reader in invalid state\n";
         }
     }
 
-    void DeviceReader::BindCallback()
+    void DeviceRepository::RequestIpDump()
     {
-        std::weak_ptr<DeviceReader> weak = weak_from_this();
-        reader_socket_->SetCallback(
-            [weak](NetlinkPacketView packet)
+        if (ip_reader_ != nullptr)
+        {
+            std::expected<void, int> dump_result = ip_reader_->TriggerDump();
+            if (!dump_result.has_value())
             {
-                std::shared_ptr<DeviceReader> shared = weak.lock();
-                if (shared != nullptr)
-                {
-                    shared->ReceivePacket(std::move(packet));
-                }
-                else
-                {
-                    std::cerr << "DeviceReader has been deallocated or not on a shared_ptr\n";
-                }
-            });
-    }
-
-    void DeviceReader::Tick()
-    {
-        dump_timer_--;
-        if (dump_timer_ <= 0)
-        {
-            reader_socket_->SendGetLinkDumpMessage();
-            request_sequence_number_ = reader_socket_->GetSequenceNumber();
-            reader_state_ = ReaderState::READING;
-            dump_timer_ = DEVICE_READER_DUMP_TIMER;
-        }
-    }
-
-    void DeviceReader::ExpediteLinkDump()
-    {
-        dump_timer_ = DEVICE_READER_EXPEDITE_TIMER;
-    }
-
-    std::expected<std::shared_ptr<IpReader>, int> IpReader::Create(EventManager &manager)
-    {
-        std::expected<std::unique_ptr<NetlinkSocket>, int> netlink_socket_result = NetlinkSocket::Create(0);
-        if (!netlink_socket_result.has_value() || *netlink_socket_result == nullptr)
-        {
-            return std::unexpected(netlink_socket_result.error_or(0));
-        }
-        std::shared_ptr<NetlinkSocket> netlink_socket = std::move(*netlink_socket_result);
-        std::expected<size_t, int> add_result = manager.Add(netlink_socket);
-        if (!add_result.has_value())
-        {
-            return std::unexpected(add_result.error());
-        }
-
-        return std::make_shared<IpReader>(std::move(IpReader(std::move(netlink_socket))));
-    }
-
-    void IpReader::Tick()
-    {
-        dump_timer_--;
-        if (dump_timer_ <= 0)
-        {
-            reader_socket_->SendGetAddrMessage();
-            sequence_number_ = reader_socket_->GetSequenceNumber();
-            reader_state_ = ReaderState::READING;
-            dump_timer_ = IP_READER_DUMP_TIMER;
-        }
-    }
-
-    void IpReader::ReceivePacket(NetlinkPacketView packet)
-    {
-        if (reader_state_ != ReaderState::READING || !sequence_number_.has_value())
-        {
-            return;
-        }
-        unsigned int packet_sequence_number = std::visit([&]<typename T>(NetlinkMessage<T> packet)
-                                                         { return packet.header.nlmsg_seq; }, packet);
-        if (packet_sequence_number != sequence_number_.value())
-        {
-            return;
-        }
-        if (ndisc::AddrView *link_message = std::get_if<ndisc::AddrView>(&packet))
-        {
-            if (!callback_.has_value())
-            {
-                (*callback_)(*link_message);
-            }
-            else
-            {
-                std::cout << "Link message got skipped as no callback is assigned.\n";
+                std::cerr << "Failed to issue ip dump. " << dump_result.error() << "\n";
             }
         }
-        else if (std::get_if<ndisc::DoneView>(&packet) != nullptr)
+        else
         {
-            sequence_number_ = std::nullopt;
-            reader_state_ = ReaderState::IDLE;
-        }
-        else if (ndisc::ErrorView *error_view = std::get_if<ndisc::ErrorView>(&packet))
-        {
-            std::cerr << "Failed to get address dump. " << error_view->content.message_error.error << " Retrying...\n";
-            reader_state_ = ReaderState::ERRORED;
-            ExpediteAddrDump();
+            std::cerr << "Ip reader in invalid state\n";
         }
     }
 
-    void IpReader::BindCallback()
+    void DeviceRepository::DeviceReaderFinished()
     {
-        std::weak_ptr<IpReader> weak = weak_from_this();
-        reader_socket_->SetCallback(
-            [weak](NetlinkPacketView packet)
-            {
-                std::shared_ptr<IpReader> shared = weak.lock();
-                if (shared != nullptr)
-                {
-                    shared->ReceivePacket(std::move(packet));
-                }
-                else
-                {
-                    std::cerr << "IpReader has been deallocated or not on a shared_ptr\n";
-                }
-            });
+        RequestIpDump();
     }
 
-    void IpReader::ExpediteAddrDump()
+    void DeviceRepository::DeviceReaderErrored()
     {
-        dump_timer_ = IP_READER_EXPEDITE_TIMER;
+        std::cerr << "Device reader errored.\n";
+        ScheduleExpediteResync();
     }
+
+    void DeviceRepository::IpReaderFinished()
+    {
+        if (synchronization_callback_.has_value())
+        {
+            (*synchronization_callback_)(devices_);
+        }
+        else
+        {
+            std::cerr << "Warning: DeviceRepository Sync callback is empty.\n";
+        }
+    }
+
+    void DeviceRepository::IpReaderErrored()
+    {
+    }
+
     std::expected<std::unique_ptr<DeviceRepository>, int> DeviceRepository::Create(EventManager &manager)
     {
-        std::expected<std::shared_ptr<NetlinkSocket>, int> monitor_socket = NetlinkSocket::Create(RTMGRP_LINK | RTMGRP_IPV4_IFADDR);
+        std::expected<std::shared_ptr<netlink::NetlinkSocket>, int> monitor_socket = netlink::NetlinkSocket::Create(RTMGRP_LINK | RTMGRP_IPV4_IFADDR);
         if (!monitor_socket.has_value() || *monitor_socket == nullptr)
         {
             return std::unexpected(monitor_socket.error_or(0));
         }
-        std::expected<std::shared_ptr<DeviceReader>, int> device_reader = DeviceReader::Create(manager);
+        std::expected<std::unique_ptr<netlink::DeviceReader>, int> device_reader = netlink::DeviceReader::Create(manager);
         if (!device_reader.has_value())
         {
             return std::unexpected(device_reader.error());
         }
-        std::expected<std::shared_ptr<IpReader>, int> ip_reader = IpReader::Create(manager);
+        std::expected<std::unique_ptr<netlink::IpReader>, int> ip_reader = netlink::IpReader::Create(manager);
         if (!ip_reader.has_value())
         {
             return std::unexpected(ip_reader.error());
         }
-        return std::make_unique<DeviceRepository>(DeviceRepository(*monitor_socket, *device_reader, *ip_reader));
+        return std::make_unique<DeviceRepository>(DeviceRepository(*monitor_socket, std::move(*device_reader), std::move(*ip_reader)));
     }
 
     void DeviceRepository::Tick()
     {
         device_reader_->Tick();
         ip_reader_->Tick();
+        if (sync_timeout_ > 0)
+        {
+            sync_timeout_--;
+            if (sync_timeout_ == 0)
+            {
+                RequestDeviceDump();
+                ScheduleResync();
+            }
+        }
+        else
+        {
+            ScheduleResync();
+        }
     }
 
-    void DeviceRepository::HandleMonitorPackets(ndisc::NetlinkPacketView packet)
+    void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView &packet)
     {
-        if (std::get_if<LinkView>(&packet) != nullptr)
+        if (std::get_if<netlink::LinkView>(&packet) != nullptr || std::get_if<netlink::AddrView>(&packet) != nullptr)
         {
-            device_reader_->ExpediteLinkDump();
-        }
-        else if (std::get_if<AddrView>(&packet) != nullptr)
-        {
-            ip_reader_->ExpediteAddrDump();
+            ScheduleExpediteResync();
         }
     }
 
-    void DeviceRepository::HandleLinkPacket(const LinkView &link_message)
+    void DeviceRepository::HandleLinkPacket(const netlink::LinkView &link_message)
     {
         if (link_message.header.nlmsg_type != RTM_NEWLINK || link_message.content.interface_info.ifi_type != ARPHRD_ETHER)
         {
             return;
         }
         int index = link_message.content.interface_info.ifi_index;
-        ndisc::DeviceData &device = devices_[index];
+        netlink::DeviceData &device = devices_[index];
         device.if_index = index;
-        for (const ndisc::TLVView attribute : link_message.content.attributes)
+        for (const netlink::TLVView attribute : link_message.content.attributes)
         {
             if (attribute.attribute_header.rta_type == IFLA_IFNAME && attribute.value.size() > 1)
             {
@@ -285,7 +167,7 @@ namespace ndisc
         }
     }
 
-    void DeviceRepository::HandleAddressPacket(const AddrView &address_message)
+    void DeviceRepository::HandleAddressPacket(const netlink::AddrView &address_message)
     {
         if (address_message.header.nlmsg_type == RTM_NEWADDR)
         {
@@ -295,7 +177,7 @@ namespace ndisc
             }
             unsigned int index = address_message.content.address_info.ifa_index;
             devices_[index].if_index = index;
-            for (const ndisc::TLVView attribute : address_message.content.attributes)
+            for (const netlink::TLVView attribute : address_message.content.attributes)
             {
                 if (attribute.attribute_header.rta_type == IFA_ADDRESS)
                 {

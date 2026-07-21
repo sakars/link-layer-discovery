@@ -15,8 +15,9 @@ namespace ndisc
                   << std::setw(18) << "MAC"
                   << std::setw(16) << "IP"
                   << '\n';
-        for (const auto &[idx, device] : device_repository_->GetDevices())
+        for (const auto &[idx, sender] : lldp_repository_->GetDeviceInfo())
         {
+            const netlink::DeviceData &device = sender.GetDeviceData();
             std::cout << std::left << std::setw(4) << device.if_index
                       << std::setw(24) << device.interface_name.value_or("---");
             if (device.mac_address.has_value())
@@ -128,8 +129,6 @@ namespace ndisc
                 neighbour_list_->chassis_map.erase(chassis);
             }
         }
-        device_repository_->Tick();
-        lldpStateUpdater(*lldp_repository_, *device_repository_);
         lldp_repository_->Tick();
         if (dump_timer_ == 0)
         {
@@ -149,7 +148,7 @@ namespace ndisc
         return *socket_fd_;
     }
 
-    std::unique_ptr<ClockHandler> ClockHandler::Create(NeighbourList &neighbour_list, DeviceRepository &device_repository, LldpRepository &lldp_repository)
+    std::unique_ptr<ClockHandler> ClockHandler::Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository)
     {
         int socket_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
         if (socket_fd < 0)
@@ -162,6 +161,6 @@ namespace ndisc
         timer_spec.it_interval.tv_nsec = 0;
         timer_spec.it_interval.tv_sec = 1;
         timerfd_settime(socket_fd, 0, &timer_spec, nullptr);
-        return std::make_unique<ClockHandler>(ClockHandler(socket_fd, &neighbour_list, &device_repository, &lldp_repository));
+        return std::make_unique<ClockHandler>(ClockHandler(socket_fd, &neighbour_list, &lldp_repository));
     }
 } // namespace ndisc

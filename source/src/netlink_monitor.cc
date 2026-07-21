@@ -18,7 +18,7 @@
 
 using namespace std::chrono_literals;
 
-namespace ndisc
+namespace netlink
 {
 
     constexpr unsigned int KERNEL_PID = 0;
@@ -309,11 +309,11 @@ namespace ndisc
         return peek_data_length > 0;
     }
 
-    long NetlinkSocket::SendGetLinkDumpMessage()
+    std::expected<int, int> NetlinkSocket::SendGetLinkDumpMessage()
     {
         if (!socket_fd_.IsValid())
         {
-            return -2;
+            return std::unexpected(-2);
         }
         sequence_number_++;
         alignas(nlmsghdr) std::array<uint8_t, NLMSG_LENGTH(sizeof(struct ifinfomsg))> buffer{};
@@ -333,16 +333,16 @@ namespace ndisc
         const long bytes_sent = send(*socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
         if (bytes_sent < netlink_header->nlmsg_len)
         {
-            return -3;
+            return std::unexpected(-3);
         }
-        return bytes_sent;
+        return sequence_number_;
     }
 
-    long NetlinkSocket::SendGetAddrMessage()
+    std::expected<int, int> NetlinkSocket::SendGetAddrMessage()
     {
         if (!socket_fd_.IsValid())
         {
-            return -2;
+            return std::unexpected(-2);
         }
         sequence_number_++;
         alignas(nlmsghdr) std::array<uint8_t, NLMSG_LENGTH(sizeof(struct ifaddrmsg))> buffer{};
@@ -362,9 +362,9 @@ namespace ndisc
         const long bytes_sent = send(*socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
         if (bytes_sent < netlink_header->nlmsg_len)
         {
-            return -3;
+            return std::unexpected(-3);
         }
-        return bytes_sent;
+        return sequence_number_;
     }
 
     void LldpSender::Update(const DeviceData &new_device_data)
@@ -388,14 +388,14 @@ namespace ndisc
 
     constexpr std::byte PORT_ID_MAC_TYPE{0x03};
 
-    void LldpSender::SendLldp(uint16_t ttl) const
+    void LldpSender::SendLldp(uint16_t ttl)
     {
         if (device_data_.if_index > INT_MAX || !device_data_.mac_address.has_value())
         {
             return;
         }
         static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
-        LLDPEthernetFrame frame{};
+        ndisc::LLDPEthernetFrame frame{};
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
         // std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
         std::memcpy(std::begin(frame.header.ether_shost), device_data_.mac_address.value().data(), device_data_.mac_address.value().size());
@@ -417,7 +417,7 @@ namespace ndisc
         std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
         if (device_data_.ip_address.has_value())
         {
-            LLDPDUTypeLengthValue management_tlv;
+            ndisc::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(sizeof(in_addr));
             std::copy(device_data_.ip_address->begin(), device_data_.ip_address->end(), management_tlv.value.begin());
@@ -437,7 +437,7 @@ namespace ndisc
         }
     }
 
-    void LldpSender::EndTransmission() const
+    void LldpSender::EndTransmission()
     {
         if (device_data_.mac_address.has_value())
         {
@@ -508,4 +508,4 @@ namespace ndisc
         TryTransmit();
     }
 
-} // namespace ndisc
+} // namespace netlink

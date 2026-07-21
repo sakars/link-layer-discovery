@@ -16,7 +16,7 @@
 #include "lldp.hh"
 #include "lldp_packet.hh"
 
-namespace ndisc
+namespace netlink
 {
 
     struct TLVView
@@ -70,19 +70,19 @@ namespace ndisc
 
     NetlinkPacketView packetViewParser(std::span<std::byte> packet);
 
-    class NetlinkSocket final : public EventHandler
+    class NetlinkSocket final : public ndisc::EventHandler
     {
     public:
         using Callback = std::function<void(NetlinkPacketView)>;
 
     private:
-        OwnedFileDescriptor socket_fd_;
+        ndisc::OwnedFileDescriptor socket_fd_;
         std::vector<std::byte> data_buffer_;
         std::span<std::byte> remaining_data_;
         int sequence_number_ = 1;
         std::optional<Callback> callback_;
 
-        NetlinkSocket(OwnedFileDescriptor &&socket_fd) : socket_fd_(std::move(socket_fd))
+        NetlinkSocket(ndisc::OwnedFileDescriptor &&socket_fd) : socket_fd_(std::move(socket_fd))
         {
         }
 
@@ -96,6 +96,11 @@ namespace ndisc
         void SetCallback(Callback callback)
         {
             callback_ = std::move(callback);
+        }
+
+        void ClearCallback()
+        {
+            callback_ = std::nullopt;
         }
 
         int GetSocket() const override
@@ -117,9 +122,9 @@ namespace ndisc
 
         bool IsReadable() const;
 
-        long SendGetLinkDumpMessage();
+        std::expected<int, int> SendGetLinkDumpMessage();
 
-        long SendGetAddrMessage();
+        std::expected<int, int> SendGetAddrMessage();
     };
 
     constexpr uint16_t MAX_TRANSMIT_CREDITS = 5;
@@ -139,7 +144,7 @@ namespace ndisc
 
     class LldpSender
     {
-        OwnedFileDescriptor *socket_fd_;
+        ndisc::OwnedFileDescriptor *socket_fd_;
         DeviceData device_data_;
         uint16_t transmit_timer_ = 0;
         uint16_t transmit_credits_ = 0;
@@ -147,7 +152,7 @@ namespace ndisc
         bool trigger_ready_ = false;
 
     public:
-        LldpSender(OwnedFileDescriptor &socket, const DeviceData &device_data) : socket_fd_(&socket), device_data_(device_data)
+        LldpSender(ndisc::OwnedFileDescriptor &socket, const DeviceData &device_data) : socket_fd_(&socket), device_data_(device_data)
         {
             NewNeighbour();
         }
@@ -155,9 +160,9 @@ namespace ndisc
 
         void Update(const DeviceData &);
 
-        void SendLldp(uint16_t ttl) const;
+        void SendLldp(uint16_t ttl);
 
-        void EndTransmission() const;
+        void EndTransmission();
 
         void TryTransmit();
 
@@ -170,8 +175,10 @@ namespace ndisc
         void LocalChangeDetected();
 
         void Tick();
+
+        const DeviceData &GetDeviceData() const { return device_data_; }
     };
 
-} // namespace ndisc
+} // namespace netlink
 
 #endif
