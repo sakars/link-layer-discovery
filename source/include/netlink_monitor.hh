@@ -156,7 +156,6 @@ namespace netlink
         {
             NewNeighbour();
         }
-        // static std::optional<LldpSender> Create(OwnedFileDescriptor &socket, const DeviceData &device_data);
 
         void Update(const DeviceData &);
 

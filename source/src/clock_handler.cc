@@ -65,8 +65,7 @@ namespace ndisc
             std::string chassis;
             chassis.resize(chassis_id.size() - 2);
             std::memcpy(chassis.data(), chassis_id.data(), chassis_id.size() - 2);
-            std::cout
-                << "Chassis: " << chassis << "\n";
+            std::cout << "Chassis: " << chassis << "\n";
             for (const auto &[port_id, neighbour] : port_map)
             {
                 std::cout << std::setw(36) << chassis;
