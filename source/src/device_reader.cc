@@ -24,19 +24,20 @@ namespace netlink
         return std::make_unique<DeviceReader>(DeviceReader(std::move(device_socket)));
     }
 
-    void DeviceReader::Tick()
+    void DeviceReader::Tick(const uint64_t &delta_seconds)
     {
-        if (dump_read_timeout_ > 0)
+        if (dump_read_timeout_ > delta_seconds)
         {
-            dump_read_timeout_--;
-            if (dump_read_timeout_ == 0)
+            dump_read_timeout_ -= delta_seconds; // NOLINT(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
+        }
+        else
+        {
+            dump_read_timeout_ = 0;
+            if (dump_errored_callback_.has_value())
             {
-                if (dump_errored_callback_.has_value())
-                {
-                    (*dump_errored_callback_)();
-                }
-                ResetDumpAttempt();
+                (*dump_errored_callback_)();
             }
+            ResetDumpAttempt();
         }
     }
 

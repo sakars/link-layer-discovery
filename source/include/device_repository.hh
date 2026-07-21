@@ -136,7 +136,7 @@ namespace ndisc
 
         static std::expected<std::unique_ptr<DeviceRepository>, int> Create(EventManager &manager);
 
-        void Tick();
+        void Tick(const uint64_t&);
 
         void HandleMonitorPackets(const netlink::NetlinkPacketView &packet);
 

@@ -63,6 +63,8 @@ namespace ndisc
     struct NeighbourList
     {
         std::map<std::vector<std::byte>, std::map<std::vector<std::byte>, NeighbourEntry>> chassis_map;
+
+        void Tick(const uint64_t &);
     };
 
     void lldpFrameParser(NeighbourList &neighbour_list, const sockaddr_ll &address, std::span<const std::byte> frame);

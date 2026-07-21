@@ -173,7 +173,7 @@ namespace netlink
 
         void LocalChangeDetected();
 
-        void Tick();
+        void Tick(const uint64_t&);
 
         const DeviceData &GetDeviceData() const { return device_data_; }
     };
