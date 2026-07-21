@@ -9,8 +9,8 @@
 #include <optional>
 #include <utility>
 
-template <class T, int N, size_t Alignment = alignof(T)>
-class alignas(Alignment) InplaceVector
+template <class T, int N>
+class InplaceVector
 {
     static_assert(N > 0);
     union Storage
@@ -25,20 +25,12 @@ class alignas(Alignment) InplaceVector
         Storage &operator=(const Storage &) = delete;
         ~Storage() {}
     };
-    alignas(Alignment) std::array<Storage, N> array_{};
+    std::array<Storage, N> array_{};
     int size_ = 0;
 
 public:
     InplaceVector() : array_()
     {
-    }
-
-    InplaceVector(T data, int amount) : array_(), size_(amount)
-    {
-        for (int i = 0; i < amount; i++)
-        {
-            new (&array_[i].value) T(data);
-        }
     }
 
     InplaceVector(const InplaceVector &other)

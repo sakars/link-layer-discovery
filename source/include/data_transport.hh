@@ -32,7 +32,7 @@ namespace ndisc::data
     {
         uint16_t chassis_id;
         uint16_t name_length;
-        std::array<std::byte, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(uint16_t)> name;
+        std::array<uint8_t, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(uint16_t)> name;
     } __attribute__((packed));
     static_assert(std::is_trivially_copyable_v<ChassisEntry>);
     static_assert(sizeof(ChassisEntry) == DATA_MAX_SIZE);
@@ -42,7 +42,7 @@ namespace ndisc::data
         uint16_t chassis_id;
         uint16_t neighbour_id;
         uint16_t port_size;
-        std::array<std::byte, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(uint16_t) - sizeof(uint16_t)> neighbour_port;
+        std::array<uint8_t, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(uint16_t) - sizeof(uint16_t)> neighbour_port;
     } __attribute__((packed));
     static_assert(std::is_trivially_copyable_v<NeighbourEntry>);
     static_assert(sizeof(NeighbourEntry) == DATA_MAX_SIZE);
@@ -50,8 +50,8 @@ namespace ndisc::data
     struct IpEntry
     {
         uint16_t neighbour_id;
-        std::array<std::byte, sizeof(in_addr)> address;
-        std::array<std::byte, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(std::array<std::byte, sizeof(in_addr)>)> padding;
+        std::array<uint8_t, sizeof(in_addr)> address;
+        std::array<uint8_t, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(std::array<uint8_t, sizeof(in_addr)>)> padding;
     } __attribute__((packed));
     static_assert(std::is_trivially_copyable_v<IpEntry>);
     static_assert(sizeof(IpEntry) == DATA_MAX_SIZE);
@@ -60,7 +60,7 @@ namespace ndisc::data
     {
         uint16_t request_id = 0;
         NeighbourDataType type = END_OF_DATA;
-        std::array<std::byte, DATA_MAX_SIZE> data{};
+        std::array<uint8_t, DATA_MAX_SIZE> data{};
 
         DataTransportPacket();
 
@@ -160,9 +160,9 @@ namespace ndisc::data
 
         struct DeviceData
         {
-            std::vector<std::byte> chassis;
-            std::vector<std::byte> port;
-            std::optional<std::array<std::byte, 4>> ip_address;
+            std::vector<uint8_t> chassis;
+            std::vector<uint8_t> port;
+            std::optional<std::array<uint8_t, 4>> ip_address;
         };
 
         std::map<uint16_t, DeviceData> GetData();

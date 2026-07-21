@@ -14,14 +14,17 @@ namespace ndisc
     {
         OwnedFileDescriptor socket_fd_;
         NeighbourList *neighbour_list_;
+        DeviceRepository *device_repository_;
         LldpRepository *lldp_repository_;
 
         uint16_t dump_timer_ = 0;
 
         ClockHandler(OwnedFileDescriptor &&socket_fd,
                      NeighbourList *neighbour_list,
+                     DeviceRepository *device_repository,
                      LldpRepository *lldp) : socket_fd_(std::move(socket_fd)),
                                              neighbour_list_(neighbour_list),
+                                             device_repository_(device_repository),
                                              lldp_repository_(lldp) {}
 
     public:
@@ -33,7 +36,7 @@ namespace ndisc
 
         int GetSocket() const override;
 
-        static std::unique_ptr<ClockHandler> Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository);
+        static std::unique_ptr<ClockHandler> Create(NeighbourList &neighbour_list, DeviceRepository &device_repository, LldpRepository &lldp_repository);
     };
 } // namespace ndisc
 #endif // CLOCK_HANDLER_HH

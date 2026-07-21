@@ -2,10 +2,8 @@
 
 libfiles  = clock_handler 
 libfiles += data_transport 
-libfiles += device_reader
 libfiles += device_repository 
 libfiles += event_handlers 
-libfiles += ip_reader
 libfiles += lldp_monitor 
 libfiles += lldp_packet 
 libfiles += lldp_repository

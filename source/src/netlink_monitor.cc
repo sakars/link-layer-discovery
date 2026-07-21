@@ -1,7 +1,6 @@
 
 #include <bitset>
 #include <chrono>
-#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -18,7 +17,7 @@
 
 using namespace std::chrono_literals;
 
-namespace netlink
+namespace ndisc
 {
 
     constexpr unsigned int KERNEL_PID = 0;
@@ -26,123 +25,104 @@ namespace netlink
     constexpr std::chrono::milliseconds NETLINK_DELAY = 500ms;
     constexpr unsigned int NETLINK_DUMP_READ_ATTEMPTS = 5;
 
-    static std::vector<TLVView> parseTlvs(std::span<std::byte> packet, size_t message_payload_size)
+    NetlinkPacketView packetViewParser(std::span<uint8_t> packet)
     {
-        const long tlv_offset = RTA_ALIGN(NLMSG_LENGTH(message_payload_size));
-        const nlmsghdr *const header = reinterpret_cast<nlmsghdr *>(packet.data());
-
-        std::vector<TLVView> attributes;
-
-        size_t remaining_bytes = NLMSG_PAYLOAD(header, message_payload_size);
-        rtattr *start = reinterpret_cast<rtattr *>(std::next(packet.begin(), tlv_offset).base());
-        for (rtattr *rta = start;
-             RTA_OK(rta, remaining_bytes);
-             rta = RTA_NEXT(rta, remaining_bytes))
+        nlmsghdr *header = reinterpret_cast<nlmsghdr *>(packet.data());
+        if (header->nlmsg_type == RTM_GETLINK || header->nlmsg_type == RTM_NEWLINK || header->nlmsg_type == RTM_DELLINK)
         {
-            TLVView tlv;
-            std::memcpy(&tlv.attribute_header, rta, sizeof(rtattr));
-            tlv.value = std::span<std::byte>(reinterpret_cast<std::byte *>(RTA_DATA(rta)), RTA_PAYLOAD(rta));
-            attributes.emplace_back(tlv);
-        }
-        return attributes;
-    }
-
-    static LinkContentView parseLinkViewPacket(std::span<std::byte> packet)
-    {
-        nlmsghdr header{};
-        std::memcpy(&header, packet.data(), sizeof(nlmsghdr));
-        ifinfomsg interface_data{};
-        std::memcpy(&interface_data, NLMSG_DATA(packet.data()), sizeof(ifinfomsg));
-
-        std::vector<TLVView> attributes = parseTlvs(packet, sizeof(ifinfomsg));
-        return LinkContentView{
-            .interface_info = interface_data,
-            .attributes = std::move(attributes),
-        };
-    }
-
-    static AddrContentView parseAddrViewPacket(std::span<std::byte> packet)
-    {
-        // ifaddrmsg *address_info = reinterpret_cast<ifaddrmsg *>(NLMSG_DATA(packet.data()));
-        nlmsghdr header{};
-        std::memcpy(&header, packet.data(), sizeof(nlmsghdr));
-        ifaddrmsg address_info{};
-        std::memcpy(&address_info, NLMSG_DATA(packet.data()), sizeof(ifaddrmsg));
-        std::vector<TLVView> attributes = parseTlvs(packet, sizeof(ifaddrmsg));
-        return AddrContentView{
-            .address_info = address_info,
-            .attributes = std::move(attributes),
-        };
-    }
-
-    static ErrorView parseErrorViewPacket(nlmsghdr &header, std::span<std::byte> packet)
-    {
-        nlmsgerr error_payload{};
-        std::memcpy(&error_payload, NLMSG_DATA(packet.data()), sizeof(nlmsgerr));
-        std::optional<MessageContentView>
-            original_message = std::nullopt;
-        size_t payload_size = sizeof(nlmsgerr);
-        if ((header.nlmsg_flags & NLM_F_CAPPED) == 0)
-        {
-            std::byte *data = reinterpret_cast<std::byte *>(NLMSG_DATA(&(error_payload.msg)));
-            size_t original_message_payload_size = NLMSG_PAYLOAD(&(error_payload.msg), 0);
-            std::span<std::byte> original_message_span = std::span<std::byte>(data, original_message_payload_size);
-            original_message = MessageContentView{
-                .content = original_message_span,
-            };
-            payload_size = NLMSG_ALIGN(sizeof(nlmsgerr)) + original_message_payload_size;
-        }
-        std::vector<TLVView> attributes = parseTlvs(packet, payload_size);
-        return ErrorView{
-            .header = header,
-            .content = ErrorContentView{
-                .message_error = error_payload,
-                .original_content = original_message,
-                .attributes = std::move(attributes),
-            },
-        };
-    }
-
-    NetlinkPacketView packetViewParser(std::span<std::byte> packet)
-    {
-        nlmsghdr header{};
-        std::memcpy(&header, packet.data(), sizeof(nlmsghdr));
-
-        // nlmsghdr *header = reinterpret_cast<nlmsghdr *>(packet.data());
-        if (header.nlmsg_type == RTM_GETLINK || header.nlmsg_type == RTM_NEWLINK || header.nlmsg_type == RTM_DELLINK)
-        {
+            ifinfomsg *interface_data = reinterpret_cast<ifinfomsg *>(NLMSG_DATA(header));
+            size_t remaining_bytes = IFLA_PAYLOAD(header);
+            std::vector<TLVView> attributes;
+            for (rtattr *rta = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(ifinfomsg))));
+                 RTA_OK(rta, remaining_bytes);
+                 rta = RTA_NEXT(rta, remaining_bytes))
+            {
+                attributes.emplace_back(
+                    TLVView{
+                        .attribute_header = rta,
+                        .value = std::span<uint8_t>(reinterpret_cast<uint8_t *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
+                    });
+            }
             return LinkView{
                 .header = header,
-                .content = parseLinkViewPacket(packet),
+                .content = LinkContentView{
+                    .interface_info = interface_data,
+                    .attributes = std::move(attributes),
+                },
             };
         }
 
-        if (header.nlmsg_type == RTM_GETADDR || header.nlmsg_type == RTM_NEWADDR || header.nlmsg_type == RTM_DELADDR)
+        if (header->nlmsg_type == RTM_GETADDR || header->nlmsg_type == RTM_NEWADDR || header->nlmsg_type == RTM_DELADDR)
         {
+            ifaddrmsg *address_info = reinterpret_cast<ifaddrmsg *>(NLMSG_DATA(header));
+            size_t remaining_bytes = IFA_PAYLOAD(header);
+            std::vector<TLVView> attributes;
+            for (rtattr *rta = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(ifaddrmsg))));
+                 RTA_OK(rta, remaining_bytes);
+                 rta = RTA_NEXT(rta, remaining_bytes))
+            {
+                attributes.emplace_back(
+                    TLVView{
+                        .attribute_header = rta,
+                        .value = std::span<uint8_t>(reinterpret_cast<uint8_t *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
+                    });
+            }
             return AddrView{
                 .header = header,
-                .content = parseAddrViewPacket(packet),
+                .content = AddrContentView{
+                    .address_info = address_info,
+                    .attributes = std::move(attributes),
+                },
             };
         }
 
-        if (header.nlmsg_type == NLMSG_DONE)
+        if (header->nlmsg_type == NLMSG_DONE)
         {
-            int error{};
-            std::memcpy(&error, NLMSG_DATA(packet.data()), sizeof(int));
+            int *error = reinterpret_cast<int *>(NLMSG_DATA(header));
             return DoneView{
                 .header = header,
-                .content = error,
+                .error = error,
             };
         }
 
-        if (header.nlmsg_type == NLMSG_ERROR)
+        if (header->nlmsg_type == NLMSG_ERROR)
         {
-            return parseErrorViewPacket(header, packet);
+            nlmsgerr *error_payload = reinterpret_cast<nlmsgerr *>(NLMSG_DATA(header));
+            size_t remaining_bytes = NLMSG_PAYLOAD(header, sizeof(nlmsgerr));
+            std::optional<MessageContentView> original_message = std::nullopt;
+            rtattr *attribute_base = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(nlmsgerr))));
+            if ((header->nlmsg_flags & NLM_F_CAPPED) == 0)
+            {
+                uint8_t *data = reinterpret_cast<uint8_t *>(NLMSG_DATA(&(error_payload->msg)));
+                size_t original_message_payload_size = NLMSG_PAYLOAD(&(error_payload->msg), 0);
+                std::span<uint8_t> original_message_span = std::span<uint8_t>(data, original_message_payload_size);
+                original_message = MessageContentView{
+                    .content = original_message_span,
+                };
+                remaining_bytes = NLMSG_PAYLOAD(header, NLMSG_ALIGN(sizeof(nlmsgerr)) + original_message_payload_size);
+                attribute_base = reinterpret_cast<rtattr *>(packet.data() + RTA_ALIGN(NLMSG_LENGTH(sizeof(nlmsgerr)) + original_message_payload_size));
+            }
+            std::vector<TLVView> attributes;
+            for (rtattr *rta = attribute_base; RTA_OK(rta, remaining_bytes); rta = RTA_NEXT(rta, remaining_bytes))
+            {
+                attributes.emplace_back(
+                    TLVView{
+                        .attribute_header = rta,
+                        .value = std::span<uint8_t>(reinterpret_cast<uint8_t *>(RTA_DATA(rta)), RTA_PAYLOAD(rta)),
+                    });
+            }
+            return ErrorView{
+                .header = header,
+                .error = error_payload,
+                .original_content = original_message,
+                .attributes = attributes,
+            };
         }
-        size_t payload_size = NLMSG_PAYLOAD(&header, 0);
-        std::byte *payload_start = reinterpret_cast<std::byte *>(NLMSG_DATA(packet.data()));
-        std::span<std::byte> payload = std::span<std::byte>(payload_start, payload_size);
+        size_t payload_size = NLMSG_PAYLOAD(header, 0);
+        uint8_t *payload_start = reinterpret_cast<uint8_t *>(NLMSG_DATA(header));
+        std::span<uint8_t> payload = std::span<uint8_t>(payload_start, payload_size);
 
+        // std::cerr << "Unrecognized packet...\n";
         return MessageView{
             .header = header,
             .content = MessageContentView{
@@ -163,7 +143,7 @@ namespace netlink
         return machine_id;
     }
 
-    void NetlinkSocket::LoadBatch(int socket_fd, std::vector<std::byte> &data_buffer)
+    void NetlinkSocket::LoadBatch(int socket_fd, std::vector<uint8_t> &data_buffer)
     {
         if (socket_fd < 0)
         {
@@ -193,10 +173,8 @@ namespace netlink
             data_buffer.clear();
             return;
         }
-        if (static_cast<long>(data_buffer.size()) < peek_data_length)
-        {
-            data_buffer.resize(peek_data_length, std::byte{0x00});
-        }
+
+        data_buffer = std::vector<uint8_t>(peek_data_length, 0);
 
         buffer_data.iov_base = data_buffer.data();
         buffer_data.iov_len = peek_data_length;
@@ -215,21 +193,21 @@ namespace netlink
         data_buffer.resize(data_length);
     }
 
-    std::optional<std::span<std::byte>> NetlinkSocket::TryLoadFromSpan(std::span<std::byte> &remaining_data)
+    std::optional<std::span<uint8_t>> NetlinkSocket::TryLoadFromSpan(std::span<uint8_t> &remaining_data)
     {
         size_t buffer_size = remaining_data.size();
         const nlmsghdr *header = reinterpret_cast<const nlmsghdr *>(remaining_data.data());
         if (NLMSG_OK(header, buffer_size))
         {
             size_t next_message_size = NLMSG_ALIGN(header->nlmsg_len);
-            const std::span<std::byte> message_span = remaining_data.subspan(0, next_message_size);
+            const std::span<uint8_t> message_span = remaining_data.subspan(0, next_message_size);
             remaining_data = remaining_data.subspan(next_message_size);
             return message_span;
         }
         return std::nullopt;
     }
 
-    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(uint32_t multicast_groups)
+    std::expected<std::unique_ptr<NetlinkSocket>, int> NetlinkSocket::Create(std::function<void(std::span<uint8_t>)> callback, uint32_t multicast_groups)
     {
         int socket_fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
         if (socket_fd < 0)
@@ -253,31 +231,25 @@ namespace netlink
             std::cerr << "Failed to bind: errno " << errno << "\n";
             return std::unexpected(err);
         }
-
-        return std::make_unique<NetlinkSocket>(NetlinkSocket(socket_fd));
+        return std::make_unique<NetlinkSocket>(NetlinkSocket(socket_fd, std::move(callback)));
     }
 
     void NetlinkSocket::Call()
     {
-        if (!callback_.has_value())
-        {
-            std::cerr << "NetlinkSocket lacks callback\n";
-            return;
-        }
         // empty current span
-        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
+        for (std::optional<std::span<uint8_t>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
-            (*callback_)(packetViewParser(packet_from_buffer.value()));
+            callback_(packet_from_buffer.value());
         }
         LoadBatch(*socket_fd_, data_buffer_);
-        remaining_data_ = std::span<std::byte>(data_buffer_.begin(), data_buffer_.end());
-        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
+        remaining_data_ = std::span<uint8_t>(data_buffer_.begin(), data_buffer_.end());
+        for (std::optional<std::span<uint8_t>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
              packet_from_buffer.has_value();
              packet_from_buffer = TryLoadFromSpan(remaining_data_))
         {
-            (*callback_)(packetViewParser(packet_from_buffer.value())); // NOLINT(bugprone-unchecked-optional-access)
+            callback_(packet_from_buffer.value()); // NOLINT(bugprone-unchecked-optional-access)
         }
     }
 
@@ -309,11 +281,11 @@ namespace netlink
         return peek_data_length > 0;
     }
 
-    std::expected<int, int> NetlinkSocket::SendGetLinkDumpMessage()
+    long NetlinkSocket::SendGetLinkDumpMessage()
     {
         if (!socket_fd_.IsValid())
         {
-            return std::unexpected(-2);
+            return -2;
         }
         sequence_number_++;
         alignas(nlmsghdr) std::array<uint8_t, NLMSG_LENGTH(sizeof(struct ifinfomsg))> buffer{};
@@ -333,16 +305,16 @@ namespace netlink
         const long bytes_sent = send(*socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
         if (bytes_sent < netlink_header->nlmsg_len)
         {
-            return std::unexpected(-3);
+            return -3;
         }
-        return sequence_number_;
+        return bytes_sent;
     }
 
-    std::expected<int, int> NetlinkSocket::SendGetAddrMessage()
+    long NetlinkSocket::SendGetAddrMessage()
     {
         if (!socket_fd_.IsValid())
         {
-            return std::unexpected(-2);
+            return -2;
         }
         sequence_number_++;
         alignas(nlmsghdr) std::array<uint8_t, NLMSG_LENGTH(sizeof(struct ifaddrmsg))> buffer{};
@@ -362,150 +334,139 @@ namespace netlink
         const long bytes_sent = send(*socket_fd_, buffer.data(), netlink_header->nlmsg_len, 0);
         if (bytes_sent < netlink_header->nlmsg_len)
         {
-            return std::unexpected(-3);
+            return -3;
         }
-        return sequence_number_;
+        return bytes_sent;
     }
 
-    void LldpSender::Update(const DeviceData &new_device_data)
+    std::optional<LldpSender> LldpSender::Create()
     {
-        bool any_changed = false;
-        if (device_data_.interface_name != new_device_data.interface_name)
+        OwnedFileDescriptor socket_fd{socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))};
+        if (!socket_fd.IsValid())
         {
-            any_changed = true;
-            device_data_.interface_name = new_device_data.interface_name;
+            return std::nullopt;
         }
-        if (device_data_.ip_address != new_device_data.ip_address)
-        {
-            any_changed = true;
-            device_data_.ip_address = new_device_data.ip_address;
-        }
-        if (any_changed)
-        {
-            LocalChangeDetected();
-        }
+        return LldpSender(std::move(socket_fd));
     }
 
-    constexpr std::byte PORT_ID_MAC_TYPE{0x03};
-
-    void LldpSender::SendLldp(uint16_t ttl)
+    void LldpSender::SendLldp(unsigned int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const
     {
-        if (device_data_.if_index > INT_MAX || !device_data_.mac_address.has_value())
+        if (interface > INT_MAX)
         {
             return;
         }
         static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
-        ndisc::LLDPEthernetFrame frame{};
+        LLDPEthernetFrame frame{};
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
-        // std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
-        std::memcpy(std::begin(frame.header.ether_shost), device_data_.mac_address.value().data(), device_data_.mac_address.value().size());
+        std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
         frame.header.ether_type = htons(ETH_P_LLDP);
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
         std::string chassis = getMachineId();
         chassis = '\x07' + chassis;
         frame.data_unit.chassis_id.value.resize(chassis.size());
-        // std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
-        std::memcpy(frame.data_unit.chassis_id.value.data(), chassis.c_str(), chassis.size());
+        std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
         frame.data_unit.port_id.type = lldp::PORT_ID;
         frame.data_unit.port_id.value.resize(1 + ETH_ALEN);
-        frame.data_unit.port_id.value[0] = PORT_ID_MAC_TYPE;
-        // std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
-        std::memcpy(std::next(frame.data_unit.port_id.value.data(), 1), device_data_.mac_address.value().data(), ETH_ALEN);
+        frame.data_unit.port_id.value[0] = 0x03;
+        std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
         frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
         frame.data_unit.time_to_live.value.resize(sizeof(ttl));
-        const std::array<std::byte, sizeof(ttl)> network_ttl = std::bit_cast<std::array<std::byte, sizeof(ttl)>>(htons(ttl));
+        const std::array<uint8_t, sizeof(ttl)> network_ttl = std::bit_cast<std::array<uint8_t, sizeof(ttl)>>(htons(ttl));
         std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
-        if (device_data_.ip_address.has_value())
+        if (ip_address.has_value())
         {
-            ndisc::LLDPDUTypeLengthValue management_tlv;
+            LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(sizeof(in_addr));
-            std::copy(device_data_.ip_address->begin(), device_data_.ip_address->end(), management_tlv.value.begin());
+            std::copy(ip_address->begin(), ip_address->end(), management_tlv.value.begin());
             frame.data_unit.optional_tlv.push_back(management_tlv);
         }
-        const std::vector<std::byte> frame_buffer = frame.ToFrameBuffer();
+        const std::vector<uint8_t> frame_buffer = frame.ToFrameBuffer();
         sockaddr_ll address{};
         address.sll_family = AF_PACKET;
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));
         address.sll_halen = multicast_address.size();
-        address.sll_ifindex = static_cast<int>(device_data_.if_index);
+        address.sll_ifindex = static_cast<int>(interface);
         address.sll_protocol = htons(ETH_P_LLDP);
-        ssize_t bytes = sendto(**socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+        ssize_t bytes = sendto(*socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
         if (bytes < 0)
         {
             std::cout << "errno: " << errno << "\n";
         }
     }
 
-    void LldpSender::EndTransmission()
+    void DeviceData::EndTransmission()
     {
-        if (device_data_.mac_address.has_value())
+        if (lldp_sender.has_value() && mac_address.has_value())
         {
-            SendLldp(0);
+            lldp_sender->SendLldp(if_index, *mac_address, ip_address, 0);
         }
     }
 
-    void LldpSender::TryTransmit()
+    void DeviceData::TryTransmit()
     {
-        if (trigger_ready_ && transmit_credits_ > 0 && device_data_.mac_address.has_value())
+        if (trigger_ready && transmit_credits > 0 && mac_address.has_value())
         {
-            trigger_ready_ = false;
-            transmit_credits_--;
-            std::cout << "Transmitting lldp via device " << device_data_.if_index << "\n";
-            SendLldp(TARGET_TTL);
+            trigger_ready = false;
+            transmit_credits--;
+            if (lldp_sender.has_value())
+            {
+                std::cout << "Transmitting lldp via device " << if_index << "\n";
+                lldp_sender->SendLldp(if_index, *mac_address, ip_address, TARGET_TTL);
+            }
         }
     }
 
-    void LldpSender::TriggerTransmission()
+    void DeviceData::TriggerTransmission()
     {
-        if (fast_forward_counter_ > 0)
+        if (fast_forward_counter > 0)
         {
-            transmit_timer_ = MESSAGE_FAST_INTERVAL;
+            transmit_timer = MESSAGE_FAST_INTERVAL;
         }
         else
         {
-            transmit_timer_ = MESSAGE_TRANSMIT_INTERVAL;
+            transmit_timer = MESSAGE_TRANSMIT_INTERVAL;
         }
-        trigger_ready_ = true;
+        trigger_ready = true;
         TryTransmit();
     }
-    void LldpSender::TimerExpired()
+    void DeviceData::TimerExpired()
     {
-        if (fast_forward_counter_ > 0)
+        if (fast_forward_counter > 0)
         {
-            fast_forward_counter_--;
+            fast_forward_counter--;
         }
         TriggerTransmission();
     }
-    void LldpSender::NewNeighbour()
+    void DeviceData::NewNeighbour()
     {
-        if (fast_forward_counter_ == 0)
+        if (fast_forward_counter == 0)
         {
-            fast_forward_counter_ = FAST_TRANSMIT_AMOUNT;
+            fast_forward_counter = FAST_TRANSMIT_AMOUNT;
         }
         TimerExpired();
     }
 
-    void LldpSender::LocalChangeDetected()
+    void DeviceData::LocalChangeDetected()
     {
         TriggerTransmission();
     }
 
-    void LldpSender::Tick()
+    void DeviceData::Tick()
     {
-        if (transmit_credits_ < MAX_TRANSMIT_CREDITS)
+        if (transmit_credits < MAX_TRANSMIT_CREDITS)
         {
-            transmit_credits_ += 1;
+            transmit_credits += 1;
         }
-        if (transmit_timer_ > 0)
+        if (transmit_timer > 0)
         {
-            transmit_timer_--;
+            transmit_timer--;
         }
-        if (transmit_timer_ == 0)
+        if (transmit_timer == 0)
         {
             TimerExpired();
         }
         TryTransmit();
     }
 
-} // namespace netlink
+} // namespace ndisc

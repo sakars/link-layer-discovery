@@ -16,92 +16,28 @@
 #include "lldp.hh"
 #include "lldp_packet.hh"
 
-namespace netlink
+namespace ndisc
 {
 
-    struct TLVView
+    class NetlinkSocket final : public EventHandler
     {
-        rtattr attribute_header;
-        std::span<std::byte> value;
-    };
-
-    template <typename T>
-    struct NetlinkMessage
-    {
-        nlmsghdr header{};
-        T content;
-    };
-
-    struct MessageContentView
-    {
-        std::span<std::byte> content;
-    };
-
-    using MessageView = NetlinkMessage<MessageContentView>;
-
-    struct LinkContentView
-    {
-        ifinfomsg interface_info;
-        std::vector<TLVView> attributes;
-    };
-
-    using LinkView = NetlinkMessage<LinkContentView>;
-
-    struct AddrContentView
-    {
-        ifaddrmsg address_info;
-        std::vector<TLVView> attributes;
-    };
-
-    using AddrView = NetlinkMessage<AddrContentView>;
-
-    using DoneView = NetlinkMessage<int>;
-
-    struct ErrorContentView
-    {
-        nlmsgerr message_error{};
-        std::optional<MessageContentView> original_content;
-        std::vector<TLVView> attributes;
-    };
-    using ErrorView = NetlinkMessage<ErrorContentView>;
-
-    using NetlinkPacketView =
-        std::variant<MessageView, LinkView, AddrView, ErrorView, DoneView>;
-
-    NetlinkPacketView packetViewParser(std::span<std::byte> packet);
-
-    class NetlinkSocket final : public ndisc::EventHandler
-    {
-    public:
-        using Callback = std::function<void(NetlinkPacketView)>;
-
     private:
-        ndisc::OwnedFileDescriptor socket_fd_;
-        std::vector<std::byte> data_buffer_;
-        std::span<std::byte> remaining_data_;
+        OwnedFileDescriptor socket_fd_;
+        std::vector<uint8_t> data_buffer_;
+        std::span<uint8_t> remaining_data_;
         int sequence_number_ = 1;
-        std::optional<Callback> callback_;
+        std::function<void(std::span<uint8_t>)> callback_;
 
-        NetlinkSocket(ndisc::OwnedFileDescriptor &&socket_fd) : socket_fd_(std::move(socket_fd))
+        NetlinkSocket(OwnedFileDescriptor &&socket_fd, std::function<void(std::span<uint8_t>)> callback) : socket_fd_(std::move(socket_fd)), callback_(std::move(callback))
         {
         }
 
-        static void LoadBatch(int socket_fd, std::vector<std::byte> &data_buffer);
+        static void LoadBatch(int socket_fd, std::vector<uint8_t> &data_buffer);
 
-        static std::optional<std::span<std::byte>> TryLoadFromSpan(std::span<std::byte> &remaining_data);
+        static std::optional<std::span<uint8_t>> TryLoadFromSpan(std::span<uint8_t> &remaining_data);
 
     public:
-        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(uint32_t multicast_groups);
-
-        void SetCallback(Callback callback)
-        {
-            callback_ = std::move(callback);
-        }
-
-        void ClearCallback()
-        {
-            callback_ = std::nullopt;
-        }
+        static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(std::function<void(std::span<uint8_t>)> callback, uint32_t multicast_groups);
 
         int GetSocket() const override
         {
@@ -122,10 +58,70 @@ namespace netlink
 
         bool IsReadable() const;
 
-        std::expected<int, int> SendGetLinkDumpMessage();
+        long SendGetLinkDumpMessage();
 
-        std::expected<int, int> SendGetAddrMessage();
+        long SendGetAddrMessage();
     };
+
+    struct TLVView
+    {
+        rtattr *attribute_header;
+        std::span<uint8_t> value;
+    };
+
+    struct MessageContentView
+    {
+        std::span<uint8_t> content;
+    };
+
+    struct MessageView
+    {
+        nlmsghdr *header = nullptr;
+        MessageContentView content;
+    };
+
+    struct LinkContentView
+    {
+        ifinfomsg *interface_info;
+        std::vector<TLVView> attributes;
+    };
+
+    struct LinkView
+    {
+        nlmsghdr *header = nullptr;
+        LinkContentView content;
+    };
+
+    struct AddrContentView
+    {
+        ifaddrmsg *address_info;
+        std::vector<TLVView> attributes;
+    };
+
+    struct AddrView
+    {
+        nlmsghdr *header = nullptr;
+        AddrContentView content;
+    };
+
+    struct DoneView
+    {
+        nlmsghdr *header;
+        int *error;
+    };
+
+    struct ErrorView
+    {
+        nlmsghdr *header;
+        nlmsgerr *error;
+        std::optional<MessageContentView> original_content;
+        std::vector<TLVView> attributes;
+    };
+
+    using NetlinkPacketView =
+        std::variant<MessageView, LinkView, AddrView, ErrorView, DoneView>;
+
+    NetlinkPacketView packetViewParser(std::span<uint8_t> packet);
 
     constexpr uint16_t MAX_TRANSMIT_CREDITS = 5;
     constexpr uint16_t FAST_TRANSMIT_AMOUNT = 4;
@@ -134,33 +130,29 @@ namespace netlink
     constexpr uint16_t MESSAGE_TRANSMIT_INTERVAL = TARGET_TTL / PACKET_HOLD_AMOUNT;
     constexpr uint16_t MESSAGE_FAST_INTERVAL = 1;
 
-    struct DeviceData
-    {
-        std::optional<std::array<std::byte, ETH_ALEN>> mac_address = std::nullopt;
-        std::optional<std::array<std::byte, sizeof(in_addr)>> ip_address = std::nullopt;
-        std::optional<std::string> interface_name = std::nullopt;
-        unsigned int if_index{};
-    };
-
     class LldpSender
     {
-        ndisc::OwnedFileDescriptor *socket_fd_;
-        DeviceData device_data_;
-        uint16_t transmit_timer_ = 0;
-        uint16_t transmit_credits_ = 0;
-        uint16_t fast_forward_counter_ = 0;
-        bool trigger_ready_ = false;
+        OwnedFileDescriptor socket_fd_;
+
+        LldpSender(OwnedFileDescriptor &&socket) : socket_fd_(std::move(socket)) {}
 
     public:
-        LldpSender(ndisc::OwnedFileDescriptor &socket, const DeviceData &device_data) : socket_fd_(&socket), device_data_(device_data)
-        {
-            NewNeighbour();
-        }
-        // static std::optional<LldpSender> Create(OwnedFileDescriptor &socket, const DeviceData &device_data);
+        static std::optional<LldpSender> Create();
 
-        void Update(const DeviceData &);
+        void SendLldp(unsigned int interface, const std::array<uint8_t, ETH_ALEN> &mac, const std::optional<std::array<uint8_t, sizeof(in_addr)>> &ip_address, uint16_t ttl) const;
+    };
 
-        void SendLldp(uint16_t ttl);
+    struct DeviceData
+    {
+        std::optional<std::array<uint8_t, ETH_ALEN>> mac_address = std::nullopt;
+        std::optional<std::array<uint8_t, sizeof(in_addr)>> ip_address = std::nullopt;
+        std::optional<std::string> interface_name = std::nullopt;
+        std::optional<LldpSender> lldp_sender = std::nullopt;
+        unsigned int if_index;
+        uint16_t transmit_timer = 0;
+        uint16_t transmit_credits = 0;
+        uint16_t fast_forward_counter = 0;
+        bool trigger_ready = false;
 
         void EndTransmission();
 
@@ -175,10 +167,8 @@ namespace netlink
         void LocalChangeDetected();
 
         void Tick();
-
-        const DeviceData &GetDeviceData() const { return device_data_; }
     };
 
-} // namespace netlink
+} // namespace ndisc
 
 #endif

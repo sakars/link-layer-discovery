@@ -59,7 +59,7 @@ public:
         log << stats->id << " copied.\n";
     }
 
-    Tracker(Tracker &&other) noexcept : stats(other.stats)
+    Tracker(Tracker &&other) : stats(other.stats)
     {
         stats->moves++;
         log << stats->id << " moved.\n";
@@ -73,7 +73,7 @@ public:
         return *this;
     }
 
-    Tracker &operator=(Tracker &&other) noexcept
+    Tracker &operator=(Tracker &&other)
     {
         stats = other.stats;
         log << stats->id << " copy-assigned.\n";
