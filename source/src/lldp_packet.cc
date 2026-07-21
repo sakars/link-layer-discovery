@@ -29,7 +29,7 @@ namespace ndisc
         {
             return std::nullopt;
         }
-        const uint16_t tlv_header_raw = std::to_integer<uint8_t>(tlv_bytes[1] << 8) | std::to_integer<uint8_t>(tlv_bytes[0]);
+        const uint16_t tlv_header_raw = (std::to_integer<uint16_t>(tlv_bytes[1]) << 8) | std::to_integer<uint16_t>(tlv_bytes[0]);
         const uint16_t tlv_header = ntohs(tlv_header_raw);
         const ssize_t length = tlv_header & lldp::TYPE_MASK;
         const lldp::TLV type = (lldp::TLV)(tlv_header >> lldp::TYPE_BIT_OFFSET);
@@ -72,28 +72,34 @@ namespace ndisc
         const std::optional<LLDPDUTypeLengthValue> chassis_id_tlv = LLDPDUTypeLengthValue::FromSpan(data_unit_bytes);
         if (!chassis_id_tlv.has_value())
         {
+            std::cerr << "Failed to parse chassis tlv\n";
             return std::nullopt;
         }
         if (chassis_id_tlv->type != lldp::CHASSIS_ID)
         {
+            std::cerr << "Chassis tlv has incorrect type\n";
             return std::nullopt;
         }
         const std::optional<LLDPDUTypeLengthValue> port_id_tlv = LLDPDUTypeLengthValue::FromSpan(data_unit_bytes);
         if (!port_id_tlv.has_value())
         {
+            std::cerr << "Failed to read Port tlv\n";
             return std::nullopt;
         }
         if (port_id_tlv->type != lldp::PORT_ID)
         {
+            std::cerr << "Port tlv type incorrect\n";
             return std::nullopt;
         }
         const std::optional<LLDPDUTypeLengthValue> ttl_tlv = LLDPDUTypeLengthValue::FromSpan(data_unit_bytes);
         if (!ttl_tlv.has_value())
         {
+            std::cerr << "Failed to read TTL\n";
             return std::nullopt;
         }
         if (ttl_tlv->type != lldp::TIME_TO_LIVE)
         {
+            std::cerr << "TTL tlv incorrect type\n";
             return std::nullopt;
         }
         std::vector<LLDPDUTypeLengthValue> other_tlvs;
