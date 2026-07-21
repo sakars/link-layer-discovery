@@ -53,7 +53,6 @@ namespace ndisc
             {
                 current_state_.emplace(index, netlink::LldpSender(ethernet_broadcast_socket_, new_device_state));
                 CreateLldpStateMachine(index);
-                break;
             }
         }
         std::vector<unsigned int> deletables{};
