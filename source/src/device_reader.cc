@@ -26,18 +26,21 @@ namespace netlink
 
     void DeviceReader::Tick(const uint64_t &delta_seconds)
     {
-        if (dump_read_timeout_ > delta_seconds)
+        if (dump_request_sequence_number_.has_value())
         {
-            dump_read_timeout_ -= delta_seconds; // NOLINT(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-        }
-        else
-        {
-            dump_read_timeout_ = 0;
-            if (dump_errored_callback_.has_value())
+            if (dump_read_timeout_ > static_cast<int>(delta_seconds))
             {
-                (*dump_errored_callback_)();
+                dump_read_timeout_ -= static_cast<int>(delta_seconds);
             }
-            ResetDumpAttempt();
+            else
+            {
+                dump_read_timeout_ = 0;
+                ResetDumpAttempt();
+                if (dump_errored_callback_.has_value())
+                {
+                    (*dump_errored_callback_)();
+                }
+            }
         }
     }
 

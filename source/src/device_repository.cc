@@ -104,9 +104,9 @@ namespace ndisc
     {
         device_reader_->Tick(delta_seconds);
         ip_reader_->Tick(delta_seconds);
-        if (sync_timeout_ > delta_seconds)
+        if (sync_timeout_ > static_cast<int>(delta_seconds))
         {
-            sync_timeout_ -= delta_seconds; // NOLINT(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
+            sync_timeout_ -= static_cast<int>(delta_seconds);
         }
         else
         {
