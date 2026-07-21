@@ -17,7 +17,6 @@ int main()
         auto map = client->GetData();
         for (auto &[key, value] : map)
         {
-            // std::string chassis = std::string{value.chassis.begin(), value.chassis.end()};
             std::string chassis;
             chassis.resize(value.chassis.size());
             std::memcpy(chassis.data(), value.chassis.data(), value.chassis.size());
