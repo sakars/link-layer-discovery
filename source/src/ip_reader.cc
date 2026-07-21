@@ -24,18 +24,22 @@ namespace netlink
         return std::make_unique<IpReader>(std::move(IpReader(std::move(netlink_socket))));
     }
 
-    void IpReader::Tick()
+    void IpReader::Tick(const uint64_t &delta_seconds)
     {
-        if (dump_read_timeout_ > 0)
+        if (dump_request_sequence_number_.has_value())
         {
-            dump_read_timeout_--;
-            if (dump_read_timeout_ == 0)
+            if (dump_read_timeout_ > static_cast<int>(delta_seconds))
             {
+                dump_read_timeout_ -= static_cast<int>(delta_seconds);
+            }
+            else
+            {
+                dump_read_timeout_ = 0;
+                ResetDumpAttempt();
                 if (dump_errored_callback_.has_value())
                 {
                     (*dump_errored_callback_)();
                 }
-                ResetDumpAttempt();
             }
         }
     }

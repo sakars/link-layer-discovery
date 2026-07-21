@@ -491,18 +491,19 @@ namespace netlink
         TriggerTransmission();
     }
 
-    void LldpSender::Tick()
+    void LldpSender::Tick(const uint64_t &delta_seconds)
     {
-        if (transmit_credits_ < MAX_TRANSMIT_CREDITS)
+        if (transmit_credits_ + delta_seconds <= MAX_TRANSMIT_CREDITS)
         {
-            transmit_credits_ += 1;
+            transmit_credits_ += delta_seconds;
         }
-        if (transmit_timer_ > 0)
+        if (transmit_timer_ > delta_seconds)
         {
-            transmit_timer_--;
+            transmit_timer_ -= delta_seconds;
         }
-        if (transmit_timer_ == 0)
+        else
         {
+            transmit_timer_ = 0;
             TimerExpired();
         }
         TryTransmit();

@@ -59,7 +59,7 @@ namespace ndisc
 
         const std::map<unsigned int, netlink::LldpSender> &GetDeviceInfo() { return current_state_; }
 
-        void Tick();
+        void Tick(const uint64_t&);
     };
 } // namespace ndisc
 

@@ -61,7 +61,6 @@ namespace ndisc
 
         for (const auto &[chassis_id, port_map] : neighbour_list_->chassis_map)
         {
-
             std::string chassis;
             chassis.resize(chassis_id.size() - 2);
             std::memcpy(chassis.data(), chassis_id.data(), chassis_id.size() - 2);
@@ -104,37 +103,17 @@ namespace ndisc
         {
             return;
         }
-        std::vector<std::tuple<std::vector<std::byte>, std::vector<std::byte>>> timed_out_entries{};
-        for (auto &[chassis, port_map] : neighbour_list_->chassis_map)
+        neighbour_list_->Tick(times_triggered);
+        lldp_repository_->Tick(times_triggered);
+        if (dump_timer_ > times_triggered)
         {
-            for (auto &[port, entry] : port_map)
-            {
-                if (entry.time_to_live <= times_triggered)
-                {
-                    entry.time_to_live = 0;
-                    timed_out_entries.emplace_back(chassis, port);
-                }
-                else
-                {
-                    entry.time_to_live -= times_triggered;
-                }
-            }
+            dump_timer_ -= times_triggered;
         }
-        for (const auto &[chassis, port] : timed_out_entries)
-        {
-            neighbour_list_->chassis_map[chassis].erase(port);
-            if (neighbour_list_->chassis_map[chassis].empty())
-            {
-                neighbour_list_->chassis_map.erase(chassis);
-            }
-        }
-        lldp_repository_->Tick();
-        if (dump_timer_ == 0)
+        else
         {
             dump_timer_ = 5;
             DumpInfo();
         }
-        dump_timer_--;
     }
 
     uint32_t ClockHandler::GetEvents() const

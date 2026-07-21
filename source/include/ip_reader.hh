@@ -71,7 +71,7 @@ namespace netlink
 
         static std::expected<std::unique_ptr<IpReader>, int> Create(ndisc::EventManager &manager);
 
-        void Tick();
+        void Tick(const uint64_t&);
 
         std::expected<void, int> TriggerDump();
 

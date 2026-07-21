@@ -100,21 +100,17 @@ namespace ndisc
         return std::make_unique<DeviceRepository>(DeviceRepository(*monitor_socket, std::move(*device_reader), std::move(*ip_reader)));
     }
 
-    void DeviceRepository::Tick()
+    void DeviceRepository::Tick(const uint64_t &delta_seconds)
     {
-        device_reader_->Tick();
-        ip_reader_->Tick();
-        if (sync_timeout_ > 0)
+        device_reader_->Tick(delta_seconds);
+        ip_reader_->Tick(delta_seconds);
+        if (sync_timeout_ > static_cast<int>(delta_seconds))
         {
-            sync_timeout_--;
-            if (sync_timeout_ == 0)
-            {
-                RequestDeviceDump();
-                ScheduleResync();
-            }
+            sync_timeout_ -= static_cast<int>(delta_seconds);
         }
         else
         {
+            sync_timeout_ = 0;
             RequestDeviceDump();
             ScheduleResync();
         }

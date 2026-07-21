@@ -69,15 +69,15 @@ namespace ndisc
         }
     }
 
-    void LldpRepository::Tick()
+    void LldpRepository::Tick(const uint64_t &delta_seconds)
     {
         if (device_repository_ != nullptr)
         {
-            device_repository_->Tick();
+            device_repository_->Tick(delta_seconds);
         }
         for (auto &[idx, device] : current_state_)
         {
-            device.Tick();
+            device.Tick(delta_seconds);
         }
     }
 

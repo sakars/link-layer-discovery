@@ -120,4 +120,32 @@ namespace ndisc
     {
         return EPOLLIN;
     }
+
+    void NeighbourList::Tick(const uint64_t &delta_seconds)
+    {
+        std::vector<std::tuple<std::vector<std::byte>, std::vector<std::byte>>> timed_out_entries{};
+        for (auto &[chassis, port_map] : chassis_map)
+        {
+            for (auto &[port, entry] : port_map)
+            {
+                if (entry.time_to_live > delta_seconds)
+                {
+                    entry.time_to_live -= delta_seconds;
+                }
+                else
+                {
+                    entry.time_to_live = 0;
+                    timed_out_entries.emplace_back(chassis, port);
+                }
+            }
+        }
+        for (const auto &[chassis, port] : timed_out_entries)
+        {
+            chassis_map[chassis].erase(port);
+            if (chassis_map[chassis].empty())
+            {
+                chassis_map.erase(chassis);
+            }
+        }
+    }
 } // namespace ndisc
