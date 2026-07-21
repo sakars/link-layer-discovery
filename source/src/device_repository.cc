@@ -76,6 +76,8 @@ namespace ndisc
 
     void DeviceRepository::IpReaderErrored()
     {
+        std::cerr << "Ip reader errored\n";
+        ScheduleExpediteResync();
     }
 
     std::expected<std::unique_ptr<DeviceRepository>, int> DeviceRepository::Create(EventManager &manager)
@@ -113,6 +115,7 @@ namespace ndisc
         }
         else
         {
+            RequestDeviceDump();
             ScheduleResync();
         }
     }
