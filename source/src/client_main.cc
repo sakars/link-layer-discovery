@@ -20,7 +20,6 @@ int main()
             std::string chassis;
             chassis.resize(value.chassis.size());
             std::memcpy(chassis.data(), value.chassis.data(), value.chassis.size());
-            std::cout << "Chassis length: " << value.chassis.size() << "\t";
             std::cout << "Chassis: " << chassis << "\t";
             std::cout << "Port: ";
             std::cout << std::hex << std::setw(2);
@@ -41,6 +40,20 @@ int main()
             {
                 std::cout << "None";
             }
+            std::cout << "\tIPv6: " << std::hex << std::setfill('0');
+            if (value.ipv6_address.has_value())
+            {
+                for (auto &x : *value.ipv6_address)
+                {
+                    std::cout << std::setw(2) << std::to_integer<int>(x) << " ";
+                }
+            }
+            else
+            {
+                std::cout << "None";
+            }
+            std::cout << std::dec << std::setfill(' ');
+
             std::cout << "\n";
         }
         std::cout << std::endl;

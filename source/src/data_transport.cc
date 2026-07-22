@@ -461,7 +461,7 @@ namespace ndisc::data
             }
             else if (Ipv6Entry *ipv6_entry = std::get_if<Ipv6Entry>(&*packet))
             {
-                map[ip_entry->neighbour_id].ipv6_address = ipv6_entry->address;
+                map[ipv6_entry->neighbour_id].ipv6_address = ipv6_entry->address;
             }
             else
             {
