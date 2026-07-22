@@ -2,12 +2,13 @@
 #include "device_repository.hh"
 
 #include <iostream>
+#include <linux/if.h>
 #include <net/if_arp.h>
 
 namespace ndisc
 {
     static constexpr int DEVICE_REPOSITORY_SYNC_TIMEOUT = 120;
-    static constexpr int DEVICE_REPOSITORY_EXPEDITE_TIMEOUT = 5;
+    static constexpr int DEVICE_REPOSITORY_EXPEDITE_TIMEOUT = 2;
 
     void DeviceRepository::ScheduleResync()
     {
@@ -87,6 +88,11 @@ namespace ndisc
         {
             return std::unexpected(monitor_socket.error_or(0));
         }
+        std::expected<size_t, int> add_result = manager.Add(*monitor_socket);
+        if (!add_result.has_value())
+        {
+            return std::unexpected(add_result.error());
+        }
         std::expected<std::unique_ptr<netlink::DeviceReader>, int> device_reader = netlink::DeviceReader::Create(manager);
         if (!device_reader.has_value())
         {
@@ -134,6 +140,7 @@ namespace ndisc
         int index = link_message.content.interface_info.ifi_index;
         netlink::DeviceData &device = devices_[index];
         device.if_index = index;
+        device.device_operational = (link_message.content.interface_info.ifi_flags & IFF_UP) != 0 && (link_message.content.interface_info.ifi_flags & IFF_LOWER_UP) != 0;
         for (const netlink::TLVView attribute : link_message.content.attributes)
         {
             if (attribute.attribute_header.rta_type == IFLA_IFNAME && attribute.value.size() > 1)

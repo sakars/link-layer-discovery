@@ -386,6 +386,19 @@ namespace netlink
             any_changed = true;
             device_data_.ipv6_address = new_device_data.ipv6_address;
         }
+        if (device_data_.device_operational != new_device_data.device_operational)
+        {
+            any_changed = true;
+            if (new_device_data.device_operational)
+            {
+                DisableSender();
+            }
+            else
+            {
+                EnableSender();
+            }
+            device_data_.device_operational = new_device_data.device_operational;
+        }
         if (any_changed)
         {
             LocalChangeDetected();
@@ -469,6 +482,12 @@ namespace netlink
         ssize_t bytes = sendto(**socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
         if (bytes < 0)
         {
+            int error = errno;
+            if (error == ENETDOWN)
+            {
+                device_data_.device_operational = false;
+                DisableSender();
+            }
             std::cout << "errno: " << errno << "\n";
         }
     }
@@ -529,20 +548,32 @@ namespace netlink
 
     void LldpSender::Tick(const uint64_t &delta_seconds)
     {
-        if (transmit_credits_ + delta_seconds <= MAX_TRANSMIT_CREDITS)
+        if (device_data_.device_operational)
         {
-            transmit_credits_ += delta_seconds;
+            if (transmit_credits_ + delta_seconds <= MAX_TRANSMIT_CREDITS)
+            {
+                transmit_credits_ += delta_seconds;
+            }
+            if (transmit_timer_ > delta_seconds)
+            {
+                transmit_timer_ -= delta_seconds;
+            }
+            else
+            {
+                transmit_timer_ = 0;
+                TimerExpired();
+            }
+            TryTransmit();
         }
-        if (transmit_timer_ > delta_seconds)
-        {
-            transmit_timer_ -= delta_seconds;
-        }
-        else
-        {
-            transmit_timer_ = 0;
-            TimerExpired();
-        }
-        TryTransmit();
+    }
+
+    void LldpSender::DisableSender()
+    {
+    }
+
+    void LldpSender::EnableSender()
+    {
+        NewNeighbour();
     }
 
 } // namespace netlink

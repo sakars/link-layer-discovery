@@ -140,6 +140,7 @@ namespace netlink
         std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address = std::nullopt;
         std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address = std::nullopt;
         std::optional<std::string> interface_name = std::nullopt;
+        bool device_operational = false;
         unsigned int if_index{};
     };
 
@@ -155,7 +156,11 @@ namespace netlink
     public:
         LldpSender(ndisc::OwnedFileDescriptor &socket, const DeviceData &device_data) : socket_fd_(&socket), device_data_(device_data)
         {
-            NewNeighbour();
+            if (device_data_.device_operational) {
+                EnableSender();
+            } else {
+                DisableSender();
+            }
         }
 
         void Update(const DeviceData &);
@@ -177,6 +182,10 @@ namespace netlink
         void Tick(const uint64_t &);
 
         const DeviceData &GetDeviceData() const { return device_data_; }
+
+        void DisableSender();
+
+        void EnableSender();
     };
 
 } // namespace netlink
