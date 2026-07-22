@@ -352,10 +352,15 @@ namespace ndisc::data
     {
     }
 
-    void DataTransportRepository::Add(std::shared_ptr<DataTransportSocket> dts)
+    std::expected<void, int> DataTransportRepository::Add(std::shared_ptr<DataTransportSocket> dts)
     {
-        event_manager_.get().Add(dts);
+        std::expected<size_t, int> add_result = event_manager_.get().Add(dts);
+        if (!add_result.has_value())
+        {
+            return std::unexpected(add_result.error());
+        }
         transport_sockets_.push_back(std::move(dts));
+        return {};
     }
 
     std::expected<std::unique_ptr<DataTransportListenSocket>, int> DataTransportListenSocket::Create(
@@ -383,7 +388,11 @@ namespace ndisc::data
             return;
         }
         std::shared_ptr<DataTransportSocket> dts = std::make_shared<DataTransportSocket>(DataTransportSocket(accept_socket, device_repository_, neighbour_list_, dtr_.get().GetSocket()));
-        dtr_.get().Add(std::move(dts));
+        std::expected<void, int> add_result = dtr_.get().Add(dts);
+        if (!add_result.has_value())
+        {
+            std::cout << "Failed to add data transport socket, errno: " << add_result.error() << "\n";
+        }
     }
 
     int DataTransportRepository::GetSocket() const

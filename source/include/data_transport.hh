@@ -118,7 +118,7 @@ namespace ndisc::data
         DataTransportRepository(OwnedFileDescriptor &&socket, EventManager &event_manager) : socket_(std::move(socket)), event_manager_(event_manager) {}
 
     public:
-        void Add(std::shared_ptr<DataTransportSocket> dts);
+        std::expected<void, int> Add(std::shared_ptr<DataTransportSocket> dts);
 
         static std::expected<std::unique_ptr<DataTransportRepository>, int> Create(EventManager &event_manager);
 

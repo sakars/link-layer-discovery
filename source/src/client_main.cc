@@ -33,12 +33,12 @@ int main()
             {
                 for (auto &x : *value.ipv4_address)
                 {
-                    std::cout << std::to_integer<int>(x) << " ";
+                    std::cout << std::to_integer<int>(x) << ".";
                 }
             }
             else
             {
-                std::cout << "None";
+                std::cout << std::left << std::setw(16) << "None";
             }
             std::cout << "\tIPv6: " << std::hex << std::setfill('0');
             if (value.ipv6_address.has_value())
