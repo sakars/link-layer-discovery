@@ -72,7 +72,7 @@ namespace ndisc::data
             .msg_flags = 0,
         };
 
-        ssize_t bytes_sent = recvmsg(file_descriptor, &header, MSG_DONTWAIT);
+        ssize_t bytes_sent = recvmsg(file_descriptor, &header, 0);
         if (bytes_sent < 0)
         {
             return std::unexpected(errno);
@@ -425,20 +425,15 @@ namespace ndisc::data
         return DataTransportClient(std::move(socket_fd));
     }
 
+    constexpr int MAX_DATA_TRANSPORT_PACKET_AMOUNT = 100000;
+
     std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> DataTransportClient::GetData()
     {
         std::map<uint16_t, std::vector<std::byte>> chassis_map{};
         std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> map{};
-        std::cout << "Sending request " << request_id_ << "\n";
         sendRequest(*socket_, request_id_);
-        int i = 0;
-        while (true)
+        for (int i = 0; i < MAX_DATA_TRANSPORT_PACKET_AMOUNT; i++)
         {
-            i++;
-            if (i > 50)
-            {
-                return {};
-            }
             std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, std::monostate>, int> packet = readDataPacket(*socket_);
             if (!packet.has_value())
             {
