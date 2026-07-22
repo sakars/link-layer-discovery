@@ -82,7 +82,7 @@ namespace ndisc
 
     std::expected<std::unique_ptr<DeviceRepository>, int> DeviceRepository::Create(EventManager &manager)
     {
-        std::expected<std::shared_ptr<netlink::NetlinkSocket>, int> monitor_socket = netlink::NetlinkSocket::Create(RTMGRP_LINK | RTMGRP_IPV4_IFADDR);
+        std::expected<std::shared_ptr<netlink::NetlinkSocket>, int> monitor_socket = netlink::NetlinkSocket::Create(RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR);
         if (!monitor_socket.has_value() || *monitor_socket == nullptr)
         {
             return std::unexpected(monitor_socket.error_or(0));
@@ -116,12 +116,13 @@ namespace ndisc
         }
     }
 
-    void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView &packet)
+    void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView &)
     {
-        if (std::get_if<netlink::LinkView>(&packet) != nullptr || std::get_if<netlink::AddrView>(&packet) != nullptr)
-        {
-            ScheduleExpediteResync();
-        }
+        // if (std::get_if<netlink::LinkView>(&packet) != nullptr || std::get_if<netlink::AddrView>(&packet) != nullptr)
+        // {
+        std::cout << "Received monitor packet\n";
+        ScheduleExpediteResync();
+        // }
     }
 
     void DeviceRepository::HandleLinkPacket(const netlink::LinkView &link_message)
@@ -170,7 +171,12 @@ namespace ndisc
     {
         if (address_message.header.nlmsg_type == RTM_NEWADDR)
         {
-            if (address_message.content.address_info.ifa_family != AF_INET || (address_message.content.address_info.ifa_flags & IFA_F_SECONDARY) != 0)
+            if (address_message.content.address_info.ifa_family != AF_INET &&
+                address_message.content.address_info.ifa_family != AF_INET6)
+            {
+                return;
+            }
+            if ((address_message.content.address_info.ifa_flags & IFA_F_SECONDARY) != 0)
             {
                 return;
             }
@@ -180,11 +186,20 @@ namespace ndisc
             {
                 if (attribute.attribute_header.rta_type == IFA_ADDRESS)
                 {
-                    if (attribute.value.size() == sizeof(in_addr))
+                    std::cout << "ifa family: " << (uint16_t)address_message.content.address_info.ifa_family << "\n";
+                    if (address_message.content.address_info.ifa_family == AF_INET &&
+                        attribute.value.size() == sizeof(in_addr))
                     {
-                        std::optional<std::array<std::byte, sizeof(in_addr)>> &device_ip = devices_[index].ip_address;
+                        std::optional<std::array<std::byte, sizeof(in_addr)>> &device_ip = devices_[index].ipv4_address;
                         device_ip = std::array<std::byte, sizeof(in_addr)>{};
                         std::copy(attribute.value.begin(), attribute.value.end(), device_ip->begin());
+                    }
+                    else if (address_message.content.address_info.ifa_family == AF_INET6 &&
+                             attribute.value.size() == sizeof(in6_addr))
+                    {
+                        std::optional<std::array<std::byte, sizeof(in6_addr)>> &device_ipv6 = devices_[index].ipv6_address;
+                        device_ipv6 = std::array<std::byte, sizeof(in6_addr)>{};
+                        std::copy(attribute.value.begin(), attribute.value.end(), device_ipv6->begin());
                     }
                 }
             }

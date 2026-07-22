@@ -30,9 +30,9 @@ int main()
             }
             std::cout << std::dec;
             std::cout << "\tIp: ";
-            if (value.ip_address.has_value())
+            if (value.ipv4_address.has_value())
             {
-                for (auto &x : *value.ip_address)
+                for (auto &x : *value.ipv4_address)
                 {
                     std::cout << std::to_integer<int>(x) << " ";
                 }

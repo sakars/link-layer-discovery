@@ -13,7 +13,8 @@ namespace ndisc
                   << std::setw(4) << "IDX"
                   << std::setw(24) << "Name"
                   << std::setw(18) << "MAC"
-                  << std::setw(16) << "IP"
+                  << std::setw(16) << "IPv4"
+                  << "IPv6"
                   << '\n';
         for (const auto &[idx, sender] : lldp_repository_->GetDeviceInfo())
         {
@@ -35,17 +36,34 @@ namespace ndisc
             {
                 std::cout << std::setw(18) << "";
             }
-            if (device.ip_address.has_value())
+            if (device.ipv4_address.has_value())
             {
                 std::cout << std::left
-                          << (uint16_t)(*device.ip_address)[0] << '.'
-                          << (uint16_t)(*device.ip_address)[1] << '.'
-                          << (uint16_t)(*device.ip_address)[2] << '.'
-                          << (uint16_t)(*device.ip_address)[3] << ' ';
+                          << std::setw(3) << (uint16_t)(*device.ipv4_address)[0] << '.'
+                          << std::setw(3) << (uint16_t)(*device.ipv4_address)[1] << '.'
+                          << std::setw(3) << (uint16_t)(*device.ipv4_address)[2] << '.'
+                          << std::setw(3) << (uint16_t)(*device.ipv4_address)[3] << ' ';
             }
             else
             {
                 std::cout << std::left << std::setw(16) << "Unknown";
+            }
+            if (device.ipv6_address.has_value())
+            {
+                std::cout << std::left << std::hex;
+                std::cout << std::to_integer<uint16_t>((*device.ipv6_address)[0])
+                          << std::to_integer<uint16_t>((*device.ipv6_address)[1]);
+                for (size_t i = 2; i < device.ipv6_address->size(); i += 2)
+                {
+                    std::cout << "::"
+                              << std::to_integer<uint16_t>((*device.ipv6_address)[i])
+                              << std::to_integer<uint16_t>((*device.ipv6_address)[i + 1]);
+                }
+                std::cout << std::dec;
+            }
+            else
+            {
+                std::cout << "Unknown";
             }
             std::cout << "\n";
         }
@@ -55,8 +73,9 @@ namespace ndisc
         std::cout << std::left
                   << std::setw(36) << "Chassis"
                   << std::setw(18) << "Port"
-                  << std::setw(16) << "IP"
                   << std::setw(12) << "TTL"
+                  << std::setw(16) << "IPv4"
+                  << "IPv6"
                   << '\n';
 
         for (const auto &[chassis_id, port_map] : neighbour_list_->chassis_map)
@@ -76,20 +95,36 @@ namespace ndisc
                           << std::setw(2) << (uint16_t)(neighbour.port_id)[4] << ":"
                           << std::setw(2) << (uint16_t)(neighbour.port_id)[5] << " "
                           << std::dec << std::setfill(' ');
-                if (neighbour.ip_address.has_value())
+                std::cout << std::setw(12) << neighbour.time_to_live;
+                if (neighbour.ipv4_address.has_value())
                 {
                     std::cout << std::left
-                              << (uint16_t)(*neighbour.ip_address)[0] << '.'
-                              << (uint16_t)(*neighbour.ip_address)[1] << '.'
-                              << (uint16_t)(*neighbour.ip_address)[2] << '.'
-                              << (uint16_t)(*neighbour.ip_address)[3] << ' ';
+                              << std::setw(3) << (uint16_t)(*neighbour.ipv4_address)[0] << '.'
+                              << std::setw(3) << (uint16_t)(*neighbour.ipv4_address)[1] << '.'
+                              << std::setw(3) << (uint16_t)(*neighbour.ipv4_address)[2] << '.'
+                              << std::setw(3) << (uint16_t)(*neighbour.ipv4_address)[3] << ' ';
                 }
                 else
                 {
                     std::cout << std::left << std::setw(16) << "Unknown";
                 }
-
-                std::cout << std::setw(12) << neighbour.time_to_live;
+                if (neighbour.ipv6_address.has_value())
+                {
+                    std::cout << std::left << std::hex;
+                    std::cout << std::to_integer<uint16_t>((*neighbour.ipv6_address)[0])
+                              << std::to_integer<uint16_t>((*neighbour.ipv6_address)[1]);
+                    for (size_t i = 2; i < neighbour.ipv6_address->size(); i += 2)
+                    {
+                        std::cout << "::"
+                                  << std::to_integer<uint16_t>((*neighbour.ipv6_address)[i])
+                                  << std::to_integer<uint16_t>((*neighbour.ipv6_address)[i + 1]);
+                    }
+                    std::cout << std::dec;
+                }
+                else
+                {
+                    std::cout << "Unknown";
+                }
                 std::cout << '\n';
             }
         }
