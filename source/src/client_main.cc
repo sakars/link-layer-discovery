@@ -1,45 +1,109 @@
 
 #include <cstring>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 
 #include "data_transport.hh"
 
 void getData(ndisc::data::DataTransportClient &client)
 {
     auto map = client.GetData();
+    std::cout << "Chassis\tPort type\tPort\tIp\tIpv6\n";
     for (auto &[key, value] : map)
     {
         std::string chassis;
         chassis.resize(value.chassis.size());
         std::memcpy(chassis.data(), value.chassis.data(), value.chassis.size());
-        std::cout << "Chassis: " << chassis << "\t";
-        std::cout << "Port: ";
-        std::cout << std::hex << std::setw(2);
-        for (auto &port_char : value.port)
+        std::cout << chassis << "\t";
+        if (!value.port.empty())
         {
-            std::cout << (uint16_t)port_char << " ";
-        }
-        std::cout << std::dec;
-        std::cout << "\tIp: ";
-        if (value.ipv4_address.has_value())
-        {
-            for (auto &ipv4_byte : *value.ipv4_address)
+            std::cout << std::hex << std::setfill('0');
+            if (value.port[0] == std::byte{0x03} && value.port.size() == 1 + ETH_ALEN)
             {
-                std::cout << std::to_integer<int>(ipv4_byte) << ".";
+                std::cout << "MAC\t"
+                          << std::setw(2) << std::to_integer<int>(value.port[1]) << ":"
+                          << std::setw(2) << std::to_integer<int>(value.port[2]) << ":"
+                          << std::setw(2) << std::to_integer<int>(value.port[3]) << ":"
+                          << std::setw(2) << std::to_integer<int>(value.port[4]) << ":"
+                          << std::setw(2) << std::to_integer<int>(value.port[5]) << ":"
+                          << std::setw(2) << std::to_integer<int>(value.port[6]);
             }
+            else if (value.port[0] == std::byte{0x04} && value.port.size() > 1)
+            {
+                if (value.port[1] == std::byte{lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC} && value.port.size() == 1 + 1 + ETH_ALEN)
+                {
+                    std::cout << "NET(MAC)\t"
+                              << std::setw(2) << std::to_integer<int>(value.port[2]) << ":"
+                              << std::setw(2) << std::to_integer<int>(value.port[3]) << ":"
+                              << std::setw(2) << std::to_integer<int>(value.port[4]) << ":"
+                              << std::setw(2) << std::to_integer<int>(value.port[5]) << ":"
+                              << std::setw(2) << std::to_integer<int>(value.port[6]) << ":"
+                              << std::setw(2) << std::to_integer<int>(value.port[7]);
+                }
+                else if (value.port[1] == std::byte{lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4} && value.port.size() == 1 + 1 + sizeof(in_addr))
+                {
+                    std::string address;
+                    address.resize(INET_ADDRSTRLEN);
+                    std::cout << "NET(IPv4)\t"
+                              << inet_ntop(AF_INET, std::next(value.port.begin(), 2).base(), address.data(), address.size()) << "\t";
+                }
+                else if (value.port[1] == std::byte{lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6} && value.port.size() == 1 + 1 + sizeof(in6_addr))
+                {
+                    std::string address;
+                    address.resize(INET6_ADDRSTRLEN);
+                    std::cout << "NET(IPv6)\t"
+                              << inet_ntop(AF_INET6, std::next(value.port.begin(), 2).base(), address.data(), address.size()) << "\t";
+                }
+                else
+                {
+                    std::cout << "NET(Unknown(" << std::to_integer<int>(value.port[1]) << "))\t";
+
+                    for (const std::byte &port_byte : value.port)
+                    {
+                        std::cout << std::setw(2) << std::to_integer<int>(port_byte) << " ";
+                    }
+                }
+            }
+            else if (value.port[0] == std::byte{0x07})
+            {
+                std::cout << "Local\t";
+
+                for (size_t i = 1; i < value.port.size(); i++)
+                {
+                    std::cout << std::to_integer<char>(value.port[i]) << " ";
+                }
+            }
+            else
+            {
+                std::cout << "Unknown(" << std::to_integer<int>(value.port[0]) << ")\t";
+
+                for (const std::byte &port_byte : value.port)
+                {
+                    std::cout << std::setw(2) << std::to_integer<int>(port_byte) << " ";
+                }
+            }
+            std::cout << std::dec << std::setfill(' ') << "\t";
         }
         else
         {
-            std::cout << std::left << std::setw(16) << "None";
+            std::cout << "None\tNone\t";
         }
-        std::cout << "\tIPv6: " << std::hex << std::setfill('0');
+        if (value.ipv4_address.has_value())
+        {
+            std::string address;
+            address.resize(INET_ADDRSTRLEN);
+            std::cout << inet_ntop(AF_INET, value.ipv6_address->data(), address.data(), address.size()) << "\t";
+        }
+        else
+        {
+            std::cout << "None\t";
+        }
+        std::cout << std::hex << std::setfill('0');
         if (value.ipv6_address.has_value())
         {
-            for (auto &ipv6_byte : *value.ipv6_address)
-            {
-                std::cout << std::setw(2) << std::to_integer<int>(ipv6_byte) << " ";
-            }
+            std::string address;
+            address.resize(INET6_ADDRSTRLEN);
+            std::cout << inet_ntop(AF_INET6, value.ipv6_address->data(), address.data(), address.size()) << "\t";
         }
         else
         {

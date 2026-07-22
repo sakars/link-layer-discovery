@@ -425,14 +425,14 @@ namespace ndisc::data
         return DataTransportClient(std::move(socket_fd));
     }
 
+    constexpr int MAX_DATA_TRANSPORT_PACKET_AMOUNT = 100000;
+
     std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> DataTransportClient::GetData()
     {
         std::map<uint16_t, std::vector<std::byte>> chassis_map{};
         std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> map{};
-        std::cout << "Sending request " << request_id_ << "\n";
         sendRequest(*socket_, request_id_);
-        constexpr int MAX_PACKET_AMOUNT = 500;
-        for (int i = 0; i < MAX_PACKET_AMOUNT; i++)
+        for (int i = 0; i < MAX_DATA_TRANSPORT_PACKET_AMOUNT; i++)
         {
             std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, std::monostate>, int> packet = readDataPacket(*socket_);
             if (!packet.has_value())
