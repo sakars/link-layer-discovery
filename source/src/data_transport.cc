@@ -12,6 +12,12 @@ namespace ndisc::data
     {
     }
 
+    DataTransportPacket::DataTransportPacket(uint16_t rid, Ipv6Entry &entry) : request_id(rid), type(IPV6_ENTRY)
+    {
+        std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(Ipv6Entry));
+        std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
+    }
+
     DataTransportPacket::DataTransportPacket(uint16_t rid, IpEntry &entry) : request_id(rid), type(IP_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(IpEntry));
@@ -78,7 +84,7 @@ namespace ndisc::data
         return data_transport;
     }
 
-    static std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, std::monostate>, int> readDataPacket(int file_descriptor)
+    static std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, std::monostate>, int> readDataPacket(int file_descriptor)
     {
         std::expected<DataTransportPacket, int> packet = readData(file_descriptor);
         if (!packet.has_value())
@@ -100,6 +106,10 @@ namespace ndisc::data
         if (packet->type == IP_ENTRY)
         {
             return std::bit_cast<IpEntry>(packet->data);
+        }
+        if (packet->type == IPV6_ENTRY)
+        {
+            return std::bit_cast<Ipv6Entry>(packet->data);
         }
 
         return std::unexpected(0);
@@ -261,11 +271,21 @@ namespace ndisc::data
                 std::memcpy(entry.neighbour_port.data(), port_id.data(), port_id.size());
                 dtp = DataTransportPacket(request_id, entry);
                 sendmsg(*socket_, &header, 0);
-                if (neighbour.ip_address.has_value())
+                if (neighbour.ipv4_address.has_value())
                 {
                     IpEntry entry{
                         .neighbour_id = neighbour_id_counter,
-                        .address = neighbour.ip_address.value(),
+                        .address = neighbour.ipv4_address.value(),
+                        .padding = {},
+                    };
+                    dtp = DataTransportPacket(request_id, entry);
+                    sendmsg(*socket_, &header, 0);
+                }
+                if (neighbour.ipv6_address.has_value())
+                {
+                    Ipv6Entry entry{
+                        .neighbour_id = neighbour_id_counter,
+                        .address = neighbour.ipv6_address.value(),
                         .padding = {},
                     };
                     dtp = DataTransportPacket(request_id, entry);
@@ -410,7 +430,7 @@ namespace ndisc::data
             {
                 return {};
             }
-            std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, std::monostate>, int> packet = readDataPacket(*socket_);
+            std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, std::monostate>, int> packet = readDataPacket(*socket_);
             if (!packet.has_value())
             {
                 if (packet.error() == EAGAIN)
@@ -431,12 +451,17 @@ namespace ndisc::data
                 map[neighbour->neighbour_id] = DeviceData{
                     .chassis = chassis,
                     .port = port,
-                    .ip_address = std::nullopt,
+                    .ipv4_address = std::nullopt,
+                    .ipv6_address = std::nullopt,
                 };
             }
             else if (IpEntry *ip_entry = std::get_if<IpEntry>(&*packet))
             {
-                map[ip_entry->neighbour_id].ip_address = ip_entry->address;
+                map[ip_entry->neighbour_id].ipv4_address = ip_entry->address;
+            }
+            else if (Ipv6Entry *ipv6_entry = std::get_if<Ipv6Entry>(&*packet))
+            {
+                map[ip_entry->neighbour_id].ipv6_address = ipv6_entry->address;
             }
             else
             {

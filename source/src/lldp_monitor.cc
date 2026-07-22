@@ -2,9 +2,54 @@
 #include "lldp_monitor.hh"
 
 #include <cstring>
+#include <variant>
 
 namespace ndisc
 {
+    static inline std::optional<std::variant<
+        std::span<const std::byte, sizeof(in_addr)>,
+        std::span<const std::byte, sizeof(in6_addr)>,
+        std::span<const std::byte, ETH_ALEN>>>
+    managementTlvGetManagementString(const std::vector<std::byte> &management_tlv_value)
+    {
+        if (management_tlv_value.empty())
+        {
+            return std::nullopt;
+        }
+        uint8_t length = std::to_integer<uint8_t>(management_tlv_value.at(0));
+        if (length == 0 || management_tlv_value.size() < 1U + length)
+        {
+            return std::nullopt;
+        }
+        std::byte string_subtype = management_tlv_value.at(1);
+        if (string_subtype == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4)
+        {
+            if (length != 1 + sizeof(in_addr))
+            {
+                return std::nullopt;
+            }
+            return std::span<const std::byte, sizeof(in_addr)>(std::next(management_tlv_value.begin(), 2), sizeof(in_addr));
+        }
+        if (string_subtype == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6)
+        {
+            if (length != 1 + sizeof(in6_addr))
+            {
+                return std::nullopt;
+            }
+            return std::span<const std::byte, sizeof(in6_addr)>(std::next(management_tlv_value.data(), 2), sizeof(in6_addr));
+        }
+        if (string_subtype == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC)
+        {
+
+            if (length != 1 + ETH_ALEN)
+            {
+                return std::nullopt;
+            }
+            return std::span<const std::byte, ETH_ALEN>(std::next(management_tlv_value.begin(), 2), ETH_ALEN);
+        }
+        return std::nullopt;
+    }
+
     void lldpFrameParser(NeighbourList &neighbour_list, const sockaddr_ll &address, std::span<const std::byte> frame)
     {
         if (address.sll_family != AF_PACKET)
@@ -39,22 +84,40 @@ namespace ndisc
             std::cerr << "Failed to parse a data_unit\n";
             return;
         }
-        std::optional<std::array<std::byte, 4>> ip_address = std::nullopt;
+        std::array<std::byte, 2> time_to_live_data{data_unit->time_to_live.value[0], data_unit->time_to_live.value[1]};
+
+        std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address = std::nullopt;
+        std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address = std::nullopt;
+        std::cout << "Found " << data_unit->optional_tlv.size() << " tlvs\n";
         for (const LLDPDUTypeLengthValue &tlv : data_unit->optional_tlv)
         {
-            if (tlv.type == lldp::MANAGEMENT_ADDRESS && tlv.value.size() == sizeof(in_addr))
+            if (tlv.type == lldp::MANAGEMENT_ADDRESS)
             {
-                ip_address = std::array<std::byte, 4>();
-                std::copy(tlv.value.begin(), tlv.value.end(), ip_address->begin());
+                auto address_string = managementTlvGetManagementString(tlv.value);
+                if (address_string.has_value())
+                {
+                    if (std::span<const std::byte, sizeof(in_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in_addr)>>(&*address_string))
+                    {
+                        std::cout << "IPv4 received\n";
+                        ipv4_address = std::array<std::byte, sizeof(in_addr)>{};
+                        std::copy(addr->begin(), addr->end(), ipv4_address->begin());
+                    }
+                    else if (std::span<const std::byte, sizeof(in6_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in6_addr)>>(&*address_string))
+                    {
+                        std::cout << "IPv6 received\n";
+                        ipv6_address = std::array<std::byte, sizeof(in6_addr)>{};
+                        std::copy(addr->begin(), addr->end(), ipv6_address->begin());
+                    }
+                }
             }
         }
-        std::array<std::byte, 2> time_to_live_data{data_unit->time_to_live.value[0], data_unit->time_to_live.value[1]};
 
         NeighbourEntry entry{
             .chassis_id = data_unit->chassis_id.value,
             .port_id = data_unit->port_id.value,
             .time_to_live = ntohs(std::bit_cast<uint16_t>(time_to_live_data)),
-            .ip_address = ip_address,
+            .ipv4_address = ipv4_address,
+            .ipv6_address = ipv6_address,
         };
         std::string chassis;
         chassis.resize(entry.chassis_id.size());

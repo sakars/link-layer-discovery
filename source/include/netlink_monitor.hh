@@ -137,7 +137,8 @@ namespace netlink
     struct DeviceData
     {
         std::optional<std::array<std::byte, ETH_ALEN>> mac_address = std::nullopt;
-        std::optional<std::array<std::byte, sizeof(in_addr)>> ip_address = std::nullopt;
+        std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address = std::nullopt;
+        std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address = std::nullopt;
         std::optional<std::string> interface_name = std::nullopt;
         unsigned int if_index{};
     };
@@ -173,7 +174,7 @@ namespace netlink
 
         void LocalChangeDetected();
 
-        void Tick(const uint64_t&);
+        void Tick(const uint64_t &);
 
         const DeviceData &GetDeviceData() const { return device_data_; }
     };

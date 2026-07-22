@@ -14,6 +14,7 @@
 #include <net/if_arp.h>
 #include <unistd.h>
 
+#include "lldp.hh"
 #include "netlink_monitor.hh"
 
 using namespace std::chrono_literals;
@@ -353,9 +354,9 @@ namespace netlink
         netlink_header->nlmsg_flags = NLM_F_ACK | NLM_F_REQUEST | NLM_F_DUMP;
         netlink_header->nlmsg_type = RTM_GETADDR;
         ifaddrmsg *address_message = reinterpret_cast<ifaddrmsg *>(NLMSG_DATA(netlink_header));
-        address_message->ifa_family = AF_INET;
+        address_message->ifa_family = AF_UNSPEC;
         address_message->ifa_prefixlen = 0;
-        address_message->ifa_scope = IFA_UNSPEC;
+        address_message->ifa_scope = RT_SCOPE_UNIVERSE;
         address_message->ifa_flags = 0;
         address_message->ifa_index = 0;
 
@@ -375,18 +376,21 @@ namespace netlink
             any_changed = true;
             device_data_.interface_name = new_device_data.interface_name;
         }
-        if (device_data_.ip_address != new_device_data.ip_address)
+        if (device_data_.ipv4_address != new_device_data.ipv4_address)
         {
             any_changed = true;
-            device_data_.ip_address = new_device_data.ip_address;
+            device_data_.ipv4_address = new_device_data.ipv4_address;
+        }
+        if (device_data_.ipv6_address != new_device_data.ipv6_address)
+        {
+            any_changed = true;
+            device_data_.ipv6_address = new_device_data.ipv6_address;
         }
         if (any_changed)
         {
             LocalChangeDetected();
         }
     }
-
-    constexpr std::byte PORT_ID_MAC_TYPE{0x03};
 
     void LldpSender::SendLldp(uint16_t ttl)
     {
@@ -404,23 +408,55 @@ namespace netlink
         std::string chassis = getMachineId();
         chassis = '\x07' + chassis;
         frame.data_unit.chassis_id.value.resize(chassis.size());
-        // std::copy(chassis.begin(), chassis.end(), frame.data_unit.chassis_id.value.begin());
         std::memcpy(frame.data_unit.chassis_id.value.data(), chassis.c_str(), chassis.size());
         frame.data_unit.port_id.type = lldp::PORT_ID;
         frame.data_unit.port_id.value.resize(1 + ETH_ALEN);
-        frame.data_unit.port_id.value[0] = PORT_ID_MAC_TYPE;
-        // std::copy(mac.begin(), mac.end(), frame.data_unit.port_id.value.begin() + 1);
+        frame.data_unit.port_id.value[0] = lldp::PORT_ID_MAC_TYPE;
         std::memcpy(std::next(frame.data_unit.port_id.value.data(), 1), device_data_.mac_address.value().data(), ETH_ALEN);
         frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
         frame.data_unit.time_to_live.value.resize(sizeof(ttl));
         const std::array<std::byte, sizeof(ttl)> network_ttl = std::bit_cast<std::array<std::byte, sizeof(ttl)>>(htons(ttl));
         std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
-        if (device_data_.ip_address.has_value())
+        if (device_data_.ipv4_address.has_value())
         {
             ndisc::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
-            management_tlv.value.resize(sizeof(in_addr));
-            std::copy(device_data_.ip_address->begin(), device_data_.ip_address->end(), management_tlv.value.begin());
+            management_tlv.value.resize(1 + 1 + sizeof(in_addr) + 1 + 4 + 1);
+            management_tlv.value.at(0) = std::byte(1 + sizeof(in_addr));
+            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4;
+            std::copy(device_data_.ipv4_address->begin(), device_data_.ipv4_address->end(), std::next(management_tlv.value.begin(), 2));
+            management_tlv.value.at(2 + sizeof(in_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            uint32_t if_index = htonl(device_data_.if_index);
+            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in_addr) + 1).base(), &if_index, sizeof(if_index));
+            management_tlv.value.at(2 + sizeof(in_addr) + 1 + 4) = std::byte{0x00};
+            frame.data_unit.optional_tlv.push_back(management_tlv);
+        }
+        if (device_data_.ipv6_address.has_value())
+        {
+            ndisc::LLDPDUTypeLengthValue management_tlv;
+            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
+            management_tlv.value.resize(1 + 1 + sizeof(in6_addr) + 1 + 4 + 1);
+            management_tlv.value.at(0) = std::byte(1 + sizeof(in6_addr));
+            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6;
+            std::copy(device_data_.ipv6_address->begin(), device_data_.ipv6_address->end(), std::next(management_tlv.value.begin(), 2));
+            management_tlv.value.at(2 + sizeof(in6_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            uint32_t if_index = htonl(device_data_.if_index);
+            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in6_addr) + 1).base(), &if_index, sizeof(if_index));
+            management_tlv.value.at(2 + sizeof(in6_addr) + 1 + 4) = std::byte{0x00};
+            frame.data_unit.optional_tlv.push_back(management_tlv);
+        }
+        if (!device_data_.ipv4_address.has_value() && !device_data_.ipv6_address.has_value())
+        {
+            ndisc::LLDPDUTypeLengthValue management_tlv;
+            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
+            management_tlv.value.resize(1 + 1 + ETH_ALEN + 1 + 4 + 1);
+            management_tlv.value.at(0) = std::byte(1 + ETH_ALEN);
+            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC;
+            std::copy(device_data_.mac_address->begin(), device_data_.mac_address->end(), std::next(management_tlv.value.begin(), 2));
+            management_tlv.value.at(2 + ETH_ALEN) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            uint32_t if_index = htonl(device_data_.if_index);
+            std::memcpy(std::next(management_tlv.value.begin(), 2 + ETH_ALEN + 1).base(), &if_index, sizeof(if_index));
+            management_tlv.value.at(2 + ETH_ALEN + 1 + 4) = std::byte{0x00};
             frame.data_unit.optional_tlv.push_back(management_tlv);
         }
         const std::vector<std::byte> frame_buffer = frame.ToFrameBuffer();

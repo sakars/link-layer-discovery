@@ -24,6 +24,7 @@ namespace ndisc::data
         CHASSIS_ENTRY = 1,
         NEIGHBOUR_ENTRY = 2,
         IP_ENTRY = 3,
+        IPV6_ENTRY = 4,
     };
 
     constexpr uint16_t DATA_MAX_SIZE = 512;
@@ -56,6 +57,15 @@ namespace ndisc::data
     static_assert(std::is_trivially_copyable_v<IpEntry>);
     static_assert(sizeof(IpEntry) == DATA_MAX_SIZE);
 
+    struct Ipv6Entry
+    {
+        uint16_t neighbour_id;
+        std::array<std::byte, sizeof(in6_addr)> address;
+        std::array<std::byte, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(std::array<std::byte, sizeof(in6_addr)>)> padding;
+    } __attribute__((packed));
+    static_assert(std::is_trivially_copyable_v<Ipv6Entry>);
+    static_assert(sizeof(Ipv6Entry) == DATA_MAX_SIZE);
+
     struct DataTransportPacket
     {
         uint16_t request_id = 0;
@@ -63,6 +73,8 @@ namespace ndisc::data
         std::array<std::byte, DATA_MAX_SIZE> data{};
 
         DataTransportPacket();
+
+        DataTransportPacket(uint16_t rid, Ipv6Entry &entry);
 
         DataTransportPacket(uint16_t rid, IpEntry &entry);
 
@@ -162,7 +174,8 @@ namespace ndisc::data
         {
             std::vector<std::byte> chassis;
             std::vector<std::byte> port;
-            std::optional<std::array<std::byte, 4>> ip_address;
+            std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address;
+            std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address;
         };
 
         std::map<uint16_t, DeviceData> GetData();
