@@ -21,6 +21,11 @@ namespace ndisc
             const netlink::DeviceData &device = sender.GetDeviceData();
             std::cout << std::left << std::setw(4) << device.if_index
                       << std::setw(24) << device.interface_name.value_or("---");
+            if (!device.device_operational)
+            {
+                std::cout << "Device down\n";
+                continue;
+            }
             if (device.mac_address.has_value())
             {
                 std::cout << std::right << std::hex << std::setfill('0')
