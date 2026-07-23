@@ -16,7 +16,8 @@ namespace ndisc
         lldp::TLV type;
         std::vector<std::byte> value;
 
-        std::vector<std::byte> ToFrameBuffer() const;
+        size_t GetFrameBufferSize() const;
+        std::span<std::byte>::iterator ToFrameBuffer(std::span<std::byte>::iterator) const;
 
         static std::optional<LLDPDUTypeLengthValue> FromSpan(std::span<const std::byte> &);
     };
@@ -28,7 +29,8 @@ namespace ndisc
         LLDPDUTypeLengthValue time_to_live;
         std::vector<LLDPDUTypeLengthValue> optional_tlv;
 
-        std::vector<std::byte> ToFrameBuffer() const;
+        size_t GetFrameBufferSize() const;
+        std::span<std::byte>::iterator ToFrameBuffer(std::span<std::byte>::iterator) const;
         static std::optional<LLDPDataUnit> FromSpan(std::span<const std::byte>);
     };
 
@@ -37,7 +39,8 @@ namespace ndisc
         ether_header header{};
         LLDPDataUnit data_unit;
 
-        std::vector<std::byte> ToFrameBuffer() const;
+        size_t GetFrameBufferSize() const;
+        std::span<std::byte>::iterator ToFrameBuffer(std::span<std::byte>::iterator) const;
     };
 
     // LLDPDUTypeLengthValue createChassisIdTLV();
