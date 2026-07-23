@@ -131,12 +131,13 @@ namespace ndisc::data
 
     class DataTransportListenSocket : public EventHandler
     {
+        OwnedFileDescriptor lock_socket_;
         OwnedFileDescriptor listener_socket_;
         std::reference_wrapper<DeviceRepository> device_repository_;
         std::reference_wrapper<NeighbourList> neighbour_list_;
         std::reference_wrapper<DataTransportRepository> dtr_;
 
-        DataTransportListenSocket(OwnedFileDescriptor &&listener_socket,
+        DataTransportListenSocket(OwnedFileDescriptor &&lock_socket, OwnedFileDescriptor &&listener_socket,
                                   DeviceRepository &device_repository,
                                   NeighbourList &neighbour_list,
                                   DataTransportRepository &dtr);

@@ -2,11 +2,14 @@
 #include "data_transport.hh"
 
 #include <cstring>
+#include <fcntl.h>
+#include <sys/file.h>
 
 namespace ndisc::data
 {
 
     const std::string SOCKET_PATH = "/run/ndisc/ndisc.sock";
+    const std::string SOCKET_LOCK = "/run/ndisc/ndisc.lock";
 
     DataTransportPacket::DataTransportPacket()
     {
@@ -311,6 +314,7 @@ namespace ndisc::data
 
     std::expected<std::unique_ptr<DataTransportRepository>, int> DataTransportRepository::Create(EventManager &event_manager)
     {
+
         OwnedFileDescriptor socket = eventfd(0, 0);
         if (!socket.IsValid())
         {
@@ -341,10 +345,12 @@ namespace ndisc::data
         }
     }
 
-    DataTransportListenSocket::DataTransportListenSocket(OwnedFileDescriptor &&listener_socket,
+    DataTransportListenSocket::DataTransportListenSocket(OwnedFileDescriptor &&lock_socket,
+                                                         OwnedFileDescriptor &&listener_socket,
                                                          DeviceRepository &device_repository,
                                                          NeighbourList &neighbour_list,
-                                                         DataTransportRepository &dtr) : listener_socket_(std::move(listener_socket)),
+                                                         DataTransportRepository &dtr) : lock_socket_(std::move(lock_socket)),
+                                                                                         listener_socket_(std::move(listener_socket)),
                                                                                          device_repository_(device_repository),
                                                                                          neighbour_list_(neighbour_list),
                                                                                          dtr_(dtr)
@@ -368,12 +374,24 @@ namespace ndisc::data
         NeighbourList &neighbour_list,
         DataTransportRepository &dtr)
     {
+        OwnedFileDescriptor lock_socket = open(SOCKET_LOCK.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+        if (!lock_socket.IsValid())
+        {
+            std::cerr << "Failed to obtain lockfile\n";
+            return std::unexpected(errno);
+        }
+        int lock_result = flock(*lock_socket, LOCK_EX | LOCK_NB);
+        if (lock_result == -1)
+        {
+            std::cerr << "Failed to obtain file lock\n";
+            return std::unexpected(errno);
+        }
         std::expected<OwnedFileDescriptor, int> socket = createDataSocket();
         if (!socket.has_value())
         {
             return std::unexpected(socket.error());
         }
-        return std::make_unique<DataTransportListenSocket>(DataTransportListenSocket(std::move(socket.value()), device_repository, neighbour_list, dtr));
+        return std::make_unique<DataTransportListenSocket>(DataTransportListenSocket(std::move(lock_socket), std::move(socket.value()), device_repository, neighbour_list, dtr));
     }
 
     void DataTransportListenSocket::Call()
