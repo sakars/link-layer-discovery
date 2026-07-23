@@ -472,7 +472,13 @@ namespace netlink
             management_tlv.value.at(2 + ETH_ALEN + 1 + 4) = std::byte{0x00};
             frame.data_unit.optional_tlv.push_back(management_tlv);
         }
-        const std::vector<std::byte> frame_buffer = frame.ToFrameBuffer();
+        std::vector<std::byte> frame_buffer{frame.GetFrameBufferSize(), std::byte{0x00}};
+        std::span<std::byte> frame_buffer_view{frame_buffer};
+        std::span<std::byte>::iterator iter = frame.ToFrameBuffer(frame_buffer_view.begin());
+        if (iter != frame_buffer_view.end())
+        {
+            std::cerr << "Warning: LldpSender frame write incomplete\n";
+        }
         sockaddr_ll address{};
         address.sll_family = AF_PACKET;
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));
@@ -488,7 +494,7 @@ namespace netlink
                 device_data_.device_operational = false;
                 DisableSender();
             }
-            std::cout << "errno: " << errno << "\n";
+            std::cerr << "errno: " << errno << "\n";
         }
     }
 

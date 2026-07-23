@@ -1,26 +1,29 @@
 #include "lldp_packet.hh"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <array>
 #include <bit>
 #include <cstring>
 #include <iostream>
+#include <ranges>
 #include <span>
 #include <stdint.h>
 
 namespace ndisc
 {
+    size_t LLDPDUTypeLengthValue::GetFrameBufferSize() const
+    {
+        return sizeof(uint16_t) + value.size();
+    }
 
-    std::vector<std::byte> LLDPDUTypeLengthValue::ToFrameBuffer() const
+    std::span<std::byte>::iterator LLDPDUTypeLengthValue::ToFrameBuffer(std::span<std::byte>::iterator iter) const
     {
         const uint16_t length = value.size();
-        uint16_t header = htons((type << lldp::TYPE_BIT_OFFSET) | length);
-        std::span<std::byte> header_view = std::span<std::byte>(reinterpret_cast<std::byte *>(&header), sizeof(header));
-        std::vector<std::byte> buffer{};
-        buffer.reserve(sizeof(header) + length);
-        buffer.insert(std::end(buffer), std::begin(header_view), std::end(header_view));
-        buffer.insert(std::end(buffer), std::begin(value), std::end(value));
-        return buffer;
+        const uint16_t header = htons((type << lldp::TYPE_BIT_OFFSET) | length);
+        iter = std::ranges::copy(std::as_bytes(std::span{&header, 1}), iter).out;
+        iter = std::ranges::copy(value, iter).out;
+        return iter;
     }
 
     std::optional<LLDPDUTypeLengthValue> LLDPDUTypeLengthValue::FromSpan(std::span<const std::byte> &tlv_bytes)
@@ -49,22 +52,28 @@ namespace ndisc
 
     constexpr std::array<std::byte, 2> END_OF_DATA_UNIT_TLV{std::byte{0x00}, std::byte{0x00}};
 
-    std::vector<std::byte> LLDPDataUnit::ToFrameBuffer() const
+    size_t LLDPDataUnit::GetFrameBufferSize() const
     {
-        std::vector<std::byte> buffer{};
-        const std::vector<std::byte> chassis_id_buffer = chassis_id.ToFrameBuffer();
-        buffer.insert(std::end(buffer), std::begin(chassis_id_buffer), std::end(chassis_id_buffer));
-        const std::vector<std::byte> port_id_buffer = port_id.ToFrameBuffer();
-        buffer.insert(std::end(buffer), std::begin(port_id_buffer), std::end(port_id_buffer));
-        const std::vector<std::byte> time_to_live_buffer = time_to_live.ToFrameBuffer();
-        buffer.insert(std::end(buffer), std::begin(time_to_live_buffer), std::end(time_to_live_buffer));
+        size_t size = chassis_id.GetFrameBufferSize() + port_id.GetFrameBufferSize() + time_to_live.GetFrameBufferSize();
         for (const LLDPDUTypeLengthValue &tlv : optional_tlv)
         {
-            const std::vector<std::byte> tlv_buffer = tlv.ToFrameBuffer();
-            buffer.insert(std::end(buffer), std::begin(tlv_buffer), std::end(tlv_buffer));
+            size += tlv.GetFrameBufferSize();
         }
-        buffer.insert(std::end(buffer), std::begin(END_OF_DATA_UNIT_TLV), std::end(END_OF_DATA_UNIT_TLV));
-        return buffer;
+        size += sizeof(END_OF_DATA_UNIT_TLV);
+        return size;
+    }
+
+    std::span<std::byte>::iterator LLDPDataUnit::ToFrameBuffer(std::span<std::byte>::iterator iter) const
+    {
+        iter = chassis_id.ToFrameBuffer(iter);
+        iter = port_id.ToFrameBuffer(iter);
+        iter = time_to_live.ToFrameBuffer(iter);
+        for (const LLDPDUTypeLengthValue &tlv : optional_tlv)
+        {
+            iter = tlv.ToFrameBuffer(iter);
+        }
+        iter = std::ranges::copy(END_OF_DATA_UNIT_TLV, iter).out;
+        return iter;
     }
 
     std::optional<LLDPDataUnit> LLDPDataUnit::FromSpan(std::span<const std::byte> data_unit_bytes)
@@ -119,22 +128,16 @@ namespace ndisc
         };
     }
 
-    std::vector<std::byte> LLDPEthernetFrame::ToFrameBuffer() const
+    size_t LLDPEthernetFrame::GetFrameBufferSize() const
     {
-        const std::vector<std::byte> data_unit_buffer = data_unit.ToFrameBuffer();
-        const auto ether_type = std::bit_cast<std::array<std::byte, lldp::ETHERTYPE_SIZE>>(header.ether_type);
+        return sizeof(header) + data_unit.GetFrameBufferSize();
+    }
 
-        std::vector<std::byte> buffer{};
-        buffer.resize(sizeof(header.ether_dhost) + sizeof(header.ether_shost) + sizeof(header.ether_type) + data_unit_buffer.size());
-        std::byte *iter = buffer.data();
-        std::memcpy(iter, std::begin(header.ether_dhost), std::size(header.ether_dhost));
-        std::advance(iter, std::size(header.ether_dhost));
-        std::memcpy(iter, std::begin(header.ether_shost), std::size(header.ether_shost));
-        std::advance(iter, std::size(header.ether_shost));
-        std::memcpy(iter, std::begin(ether_type), std::size(ether_type));
-        std::advance(iter, std::size(ether_type));
-        std::memcpy(iter, data_unit_buffer.data(), data_unit_buffer.size());
-        return buffer;
+    std::span<std::byte>::iterator LLDPEthernetFrame::ToFrameBuffer(std::span<std::byte>::iterator iter) const
+    {
+        iter = std::ranges::copy(std::as_bytes(std::span{&header, 1}), iter).out;
+        iter = data_unit.ToFrameBuffer(iter);
+        return iter;
     }
 
 } // namespace ndisc
