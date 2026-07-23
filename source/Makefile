@@ -25,7 +25,7 @@ GCC = g++ -g -std=c++23 $(WARNINGS) -I./include
 
 all: ../out/ndisc ../out/ndisc_client $(test_executables)
 
-../out/ndisc: $(object_files) include/*.hh
+../out/ndisc: $(object_files) src/server_main.cc include/*.hh
 	$(GCC) $(object_files) src/server_main.cc -o ../out/ndisc
 
 ../out/ndisc_client: $(object_files) src/client_main.cc include/*.hh

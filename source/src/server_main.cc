@@ -3,10 +3,12 @@
 #include <execinfo.h>
 #include <iomanip>
 #include <iostream>
+#include <poll.h>
 #include <queue>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/signalfd.h>
 #include <thread>
 #include <unistd.h>
 
@@ -16,8 +18,70 @@
 #include "lldp_monitor.hh"
 #include "lldp_repository.hh"
 #include "netlink_monitor.hh"
+#include "owned_file_descriptor.hh"
 
 using namespace std::chrono_literals;
+
+class InterruptHandler : public ndisc::EventHandler
+{
+    ndisc::OwnedFileDescriptor socket_;
+    bool *interrupt_flag_;
+
+    InterruptHandler(ndisc::OwnedFileDescriptor &&socket, bool *interrupt_flag) : socket_(std::move(socket)), interrupt_flag_(interrupt_flag)
+    {
+    }
+
+public:
+    static std::expected<std::shared_ptr<InterruptHandler>, int> Create(bool *interrupt)
+    {
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        sigaddset(&mask, SIGTERM);
+
+        if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1)
+        {
+            std::cerr << "Failed to block default handling for signals";
+            return std::unexpected(errno);
+        }
+        int socket = signalfd(-1, &mask, 0);
+        if (socket == -1)
+        {
+            std::cerr << "Failed to create signalfd.";
+            return std::unexpected(errno);
+        }
+        return std::make_shared<InterruptHandler>(InterruptHandler(socket, interrupt));
+    }
+
+    int GetSocket() const override
+    {
+        return *socket_;
+    }
+    void Call() override
+    {
+        signalfd_siginfo signal{};
+        ssize_t bytes_read = read(*socket_, &signal, sizeof(signal));
+        if (bytes_read < 0)
+        {
+            std::cerr << "Interrupt handler failed to read signal, errno: " << errno << "\n";
+            return;
+        }
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        sigaddset(&mask, SIGTERM);
+
+        if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
+        {
+            std::cerr << "Failed to unblock default handling for signals\n";
+        }
+        *interrupt_flag_ = true;
+    }
+    uint32_t GetEvents() const override
+    {
+        return POLLIN;
+    }
+};
 
 int main()
 {
@@ -122,8 +186,23 @@ int main()
 
     std::cout << "Handlers initialized" << "\n";
 
-    while (true)
+    bool interrupt_flag = false;
+    std::expected<std::shared_ptr<InterruptHandler>, int> interrupt_handler = InterruptHandler::Create(&interrupt_flag);
+    if (!interrupt_handler.has_value())
+    {
+        std::cerr << "Interrupt handler create failed, errno: " << interrupt_handler.error() << "\n";
+        return -1;
+    }
+    std::expected<size_t, int> add_result = manager.Add(*interrupt_handler);
+    if (!add_result.has_value())
+    {
+        std::cerr << "Failed to add interrupt handler.\n";
+        return -1;
+    }
+    while (!interrupt_flag)
     {
         manager.Wait();
     }
+    std::cout << "\n\nExiting gracefully...\n";
+    std::cout.flush();
 }
