@@ -21,7 +21,7 @@ namespace netlink
         {
             return std::unexpected(add_result.error());
         }
-        return std::make_unique<DeviceReader>(DeviceReader(std::move(device_socket), add_result.value(), &manager));
+        return std::make_unique<DeviceReader>(DeviceReader(std::move(device_socket)));
     }
 
     void DeviceReader::Tick(const uint64_t &delta_seconds)
