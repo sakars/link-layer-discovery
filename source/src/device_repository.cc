@@ -122,13 +122,10 @@ namespace ndisc
         }
     }
 
-    void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView &)
+    void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView & /*unused*/)
     {
-        // if (std::get_if<netlink::LinkView>(&packet) != nullptr || std::get_if<netlink::AddrView>(&packet) != nullptr)
-        // {
         std::cout << "Received monitor packet\n";
         ScheduleExpediteResync();
-        // }
     }
 
     void DeviceRepository::HandleLinkPacket(const netlink::LinkView &link_message)

@@ -38,6 +38,8 @@ namespace ndisc
             return std::unexpected(errno);
         }
         this->registered_events_[event_id_counter_] = handler;
+        handler->event_manager_ = this;
+        handler->handle_ = event_id_counter_;
         return event_id_counter_++;
     }
 
@@ -54,12 +56,14 @@ namespace ndisc
             {
                 return std::unexpected(errno);
             }
+            event_handler->event_manager_ = nullptr;
+            event_handler->handle_ = 0;
         }
         registered_events_.erase(handler_id);
         return {};
     }
 
-    void EventManager::Wait()
+    void EventManager::ProcessEvents()
     {
         std::vector<size_t> expired_handlers{};
         for (const auto &[handler_id, event_handler] : registered_events_)

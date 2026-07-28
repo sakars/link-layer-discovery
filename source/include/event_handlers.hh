@@ -2,6 +2,7 @@
 #define EVENT_HANDLERS_HH
 
 #include <expected>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <unistd.h>
@@ -10,20 +11,7 @@
 
 namespace ndisc
 {
-
-    class EventHandler
-    {
-    public:
-        virtual int GetSocket() const = 0;
-        virtual void Call() = 0;
-        virtual uint32_t GetEvents() const = 0;
-        EventHandler() = default;
-        EventHandler(const EventHandler &) = default;
-        EventHandler(EventHandler &&) = default;
-        EventHandler &operator=(const EventHandler &) = default;
-        EventHandler &operator=(EventHandler &&) = default;
-        virtual ~EventHandler() = default;
-    };
+    class EventHandler;
 
     class EventManager
     {
@@ -44,8 +32,49 @@ namespace ndisc
 
         static constexpr int MAX_CONCURRENT_EVENTS = 10;
         static constexpr int EPOLL_TIMEOUT = 100;
-        void Wait();
+        void ProcessEvents();
     };
+
+    class EventHandler
+    {
+        friend class EventManager;
+        EventManager *event_manager_ = nullptr;
+        uint64_t handle_ = 0;
+
+    public:
+        virtual int GetSocket() const = 0;
+        virtual void Call() = 0;
+        virtual uint32_t GetEvents() const = 0;
+        EventHandler() = default;
+        EventHandler(const EventHandler &) = delete;
+        EventHandler(EventHandler &&other) noexcept : event_manager_(other.event_manager_),
+                                                      handle_(other.handle_)
+        {
+            other.event_manager_ = nullptr;
+            other.handle_ = 0;
+        }
+        EventHandler &operator=(const EventHandler &) = delete;
+        EventHandler &operator=(EventHandler &&other) noexcept
+        {
+            event_manager_ = other.event_manager_;
+            handle_ = other.handle_;
+            other.event_manager_ = nullptr;
+            other.handle_ = 0;
+            return *this;
+        }
+        virtual ~EventHandler()
+        {
+            if (event_manager_ != nullptr && handle_ != 0)
+            {
+                std::expected<void, int> remove_result = event_manager_->Remove(handle_);
+                if (!remove_result.has_value())
+                {
+                    std::cerr << "Failed to remove event_manager, errno: " << remove_result.error() << "\n";
+                }
+            }
+        }
+    };
+
 } // namespace ndisc
 
 #endif

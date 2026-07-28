@@ -50,6 +50,45 @@ namespace ndisc
         return std::nullopt;
     }
 
+    NeighbourEntry lldpduToNeighbourEntry(const LLDPDataUnit &lldpdu)
+    {
+        std::array<std::byte, 2> time_to_live_data{lldpdu.time_to_live.value[0], lldpdu.time_to_live.value[1]};
+
+        std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address = std::nullopt;
+        std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address = std::nullopt;
+        std::cout << "Found " << lldpdu.optional_tlv.size() << " tlvs\n";
+        for (const LLDPDUTypeLengthValue &tlv : lldpdu.optional_tlv)
+        {
+            if (tlv.type == lldp::MANAGEMENT_ADDRESS)
+            {
+                auto address_string = managementTlvGetManagementString(tlv.value);
+                if (address_string.has_value())
+                {
+                    if (std::span<const std::byte, sizeof(in_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in_addr)>>(&*address_string))
+                    {
+                        std::cout << "IPv4 received\n";
+                        ipv4_address = std::array<std::byte, sizeof(in_addr)>{};
+                        std::copy(addr->begin(), addr->end(), ipv4_address->begin());
+                    }
+                    else if (std::span<const std::byte, sizeof(in6_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in6_addr)>>(&*address_string))
+                    {
+                        std::cout << "IPv6 received\n";
+                        ipv6_address = std::array<std::byte, sizeof(in6_addr)>{};
+                        std::copy(addr->begin(), addr->end(), ipv6_address->begin());
+                    }
+                }
+            }
+        }
+
+        return NeighbourEntry{
+            .chassis_id = lldpdu.chassis_id.value,
+            .port_id = lldpdu.port_id.value,
+            .time_to_live = ntohs(std::bit_cast<uint16_t>(time_to_live_data)),
+            .ipv4_address = ipv4_address,
+            .ipv6_address = ipv6_address,
+        };
+    }
+
     void lldpFrameParser(NeighbourList &neighbour_list, const sockaddr_ll &address, std::span<const std::byte> frame)
     {
         if (address.sll_family != AF_PACKET)
@@ -78,61 +117,25 @@ namespace ndisc
 
         std::array<char, IF_NAMESIZE> interface_name{};
         if_indextoname(address.sll_ifindex, interface_name.data());
-        std::optional<LLDPDataUnit> data_unit = LLDPDataUnit::FromSpan(frame);
+        const std::optional<LLDPDataUnit> data_unit = LLDPDataUnit::FromSpan(frame);
         if (!data_unit.has_value())
         {
             std::cerr << "Failed to parse a data_unit\n";
             return;
         }
-        std::array<std::byte, 2> time_to_live_data{data_unit->time_to_live.value[0], data_unit->time_to_live.value[1]};
-
-        std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address = std::nullopt;
-        std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address = std::nullopt;
-        std::cout << "Found " << data_unit->optional_tlv.size() << " tlvs\n";
-        for (const LLDPDUTypeLengthValue &tlv : data_unit->optional_tlv)
-        {
-            if (tlv.type == lldp::MANAGEMENT_ADDRESS)
-            {
-                auto address_string = managementTlvGetManagementString(tlv.value);
-                if (address_string.has_value())
-                {
-                    if (std::span<const std::byte, sizeof(in_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in_addr)>>(&*address_string))
-                    {
-                        std::cout << "IPv4 received\n";
-                        ipv4_address = std::array<std::byte, sizeof(in_addr)>{};
-                        std::copy(addr->begin(), addr->end(), ipv4_address->begin());
-                    }
-                    else if (std::span<const std::byte, sizeof(in6_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in6_addr)>>(&*address_string))
-                    {
-                        std::cout << "IPv6 received\n";
-                        ipv6_address = std::array<std::byte, sizeof(in6_addr)>{};
-                        std::copy(addr->begin(), addr->end(), ipv6_address->begin());
-                    }
-                }
-            }
-        }
-
-        NeighbourEntry entry{
-            .chassis_id = data_unit->chassis_id.value,
-            .port_id = data_unit->port_id.value,
-            .time_to_live = ntohs(std::bit_cast<uint16_t>(time_to_live_data)),
-            .ipv4_address = ipv4_address,
-            .ipv6_address = ipv6_address,
-        };
+        NeighbourEntry entry = lldpduToNeighbourEntry(*data_unit);
         std::string chassis;
         chassis.resize(entry.chassis_id.size());
-        // std::copy(entry.chassis_id.begin(), entry.chassis_id.end(), chassis.begin());
         std::memcpy(chassis.data(), entry.chassis_id.data(), entry.chassis_id.size());
         neighbour_list.chassis_map[entry.chassis_id][entry.port_id] = std::move(entry);
     }
 
-    std::unique_ptr<EthernetLldpMonitor> EthernetLldpMonitor::Create(Callback callback)
+    std::expected<std::unique_ptr<EthernetLldpMonitor>, int> EthernetLldpMonitor::Create(Callback callback)
     {
         OwnedFileDescriptor socket_fd{socket(AF_PACKET, SOCK_DGRAM, htons(ETH_P_LLDP))};
         if (!socket_fd.IsValid())
         {
-            std::cerr << "Monitor errno: " << errno << "\n";
-            return nullptr;
+            return std::unexpected(errno);
         }
         return std::make_unique<EthernetLldpMonitor>(EthernetLldpMonitor(std::move(socket_fd), std::move(callback)));
     }

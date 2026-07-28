@@ -112,7 +112,7 @@ namespace ndisc
             BindCallbacks();
         }
         DeviceRepository &operator=(const DeviceRepository &) = delete;
-        DeviceRepository &operator=(DeviceRepository &&other)
+        DeviceRepository &operator=(DeviceRepository &&other) noexcept
         {
             ClearCallbacks();
             other.ClearCallbacks();
@@ -136,7 +136,7 @@ namespace ndisc
 
         static std::expected<std::unique_ptr<DeviceRepository>, int> Create(EventManager &manager);
 
-        void Tick(const uint64_t&);
+        void Tick(const uint64_t &);
 
         void HandleMonitorPackets(const netlink::NetlinkPacketView &packet);
 

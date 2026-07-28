@@ -405,6 +405,54 @@ namespace netlink
         }
     }
 
+    static ndisc::LLDPDUTypeLengthValue createLldpduTlv(const DeviceData &device_data)
+    {
+        if (device_data.ipv4_address.has_value())
+        {
+            ndisc::LLDPDUTypeLengthValue management_tlv;
+            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
+            management_tlv.value.resize(1 + 1 + sizeof(in_addr) + 1 + 4 + 1);
+            management_tlv.value.at(0) = std::byte(1 + sizeof(in_addr));
+            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4;
+            std::copy(device_data.ipv4_address->begin(), device_data.ipv4_address->end(), std::next(management_tlv.value.begin(), 2));
+            management_tlv.value.at(2 + sizeof(in_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            uint32_t if_index = htonl(device_data.if_index);
+            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in_addr) + 1).base(), &if_index, sizeof(if_index));
+            management_tlv.value.at(2 + sizeof(in_addr) + 1 + 4) = std::byte{0x00};
+            return management_tlv;
+        }
+        if (device_data.ipv6_address.has_value())
+        {
+            ndisc::LLDPDUTypeLengthValue management_tlv;
+            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
+            management_tlv.value.resize(1 + 1 + sizeof(in6_addr) + 1 + 4 + 1);
+            management_tlv.value.at(0) = std::byte(1 + sizeof(in6_addr));
+            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6;
+            std::copy(device_data.ipv6_address->begin(), device_data.ipv6_address->end(), std::next(management_tlv.value.begin(), 2));
+            management_tlv.value.at(2 + sizeof(in6_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            uint32_t if_index = htonl(device_data.if_index);
+            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in6_addr) + 1).base(), &if_index, sizeof(if_index));
+            management_tlv.value.at(2 + sizeof(in6_addr) + 1 + 4) = std::byte{0x00};
+            return management_tlv;
+        }
+        if (device_data.mac_address.has_value())
+        {
+            ndisc::LLDPDUTypeLengthValue management_tlv;
+            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
+            management_tlv.value.resize(1 + 1 + ETH_ALEN + 1 + 4 + 1);
+            management_tlv.value.at(0) = std::byte(1 + ETH_ALEN);
+            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC;
+            std::copy(device_data.mac_address->begin(), device_data.mac_address->end(), std::next(management_tlv.value.begin(), 2));
+            management_tlv.value.at(2 + ETH_ALEN) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            uint32_t if_index = htonl(device_data.if_index);
+            std::memcpy(std::next(management_tlv.value.begin(), 2 + ETH_ALEN + 1).base(), &if_index, sizeof(if_index));
+            management_tlv.value.at(2 + ETH_ALEN + 1 + 4) = std::byte{0x00};
+            return management_tlv;
+        }
+        std::cerr << "Unable to construct management tlv as mac address is missing\n";
+        return ndisc::LLDPDUTypeLengthValue{};
+    }
+
     void LldpSender::SendLldp(uint16_t ttl)
     {
         if (device_data_.if_index > INT_MAX || !device_data_.mac_address.has_value())
@@ -414,7 +462,6 @@ namespace netlink
         static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
         ndisc::LLDPEthernetFrame frame{};
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
-        // std::copy(mac.begin(), mac.end(), std::begin(frame.header.ether_shost));
         std::memcpy(std::begin(frame.header.ether_shost), device_data_.mac_address.value().data(), device_data_.mac_address.value().size());
         frame.header.ether_type = htons(ETH_P_LLDP);
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
@@ -430,48 +477,7 @@ namespace netlink
         frame.data_unit.time_to_live.value.resize(sizeof(ttl));
         const std::array<std::byte, sizeof(ttl)> network_ttl = std::bit_cast<std::array<std::byte, sizeof(ttl)>>(htons(ttl));
         std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
-        if (device_data_.ipv4_address.has_value())
-        {
-            ndisc::LLDPDUTypeLengthValue management_tlv;
-            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
-            management_tlv.value.resize(1 + 1 + sizeof(in_addr) + 1 + 4 + 1);
-            management_tlv.value.at(0) = std::byte(1 + sizeof(in_addr));
-            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4;
-            std::copy(device_data_.ipv4_address->begin(), device_data_.ipv4_address->end(), std::next(management_tlv.value.begin(), 2));
-            management_tlv.value.at(2 + sizeof(in_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
-            uint32_t if_index = htonl(device_data_.if_index);
-            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in_addr) + 1).base(), &if_index, sizeof(if_index));
-            management_tlv.value.at(2 + sizeof(in_addr) + 1 + 4) = std::byte{0x00};
-            frame.data_unit.optional_tlv.push_back(management_tlv);
-        }
-        if (device_data_.ipv6_address.has_value())
-        {
-            ndisc::LLDPDUTypeLengthValue management_tlv;
-            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
-            management_tlv.value.resize(1 + 1 + sizeof(in6_addr) + 1 + 4 + 1);
-            management_tlv.value.at(0) = std::byte(1 + sizeof(in6_addr));
-            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6;
-            std::copy(device_data_.ipv6_address->begin(), device_data_.ipv6_address->end(), std::next(management_tlv.value.begin(), 2));
-            management_tlv.value.at(2 + sizeof(in6_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
-            uint32_t if_index = htonl(device_data_.if_index);
-            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in6_addr) + 1).base(), &if_index, sizeof(if_index));
-            management_tlv.value.at(2 + sizeof(in6_addr) + 1 + 4) = std::byte{0x00};
-            frame.data_unit.optional_tlv.push_back(management_tlv);
-        }
-        if (!device_data_.ipv4_address.has_value() && !device_data_.ipv6_address.has_value())
-        {
-            ndisc::LLDPDUTypeLengthValue management_tlv;
-            management_tlv.type = lldp::MANAGEMENT_ADDRESS;
-            management_tlv.value.resize(1 + 1 + ETH_ALEN + 1 + 4 + 1);
-            management_tlv.value.at(0) = std::byte(1 + ETH_ALEN);
-            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC;
-            std::copy(device_data_.mac_address->begin(), device_data_.mac_address->end(), std::next(management_tlv.value.begin(), 2));
-            management_tlv.value.at(2 + ETH_ALEN) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
-            uint32_t if_index = htonl(device_data_.if_index);
-            std::memcpy(std::next(management_tlv.value.begin(), 2 + ETH_ALEN + 1).base(), &if_index, sizeof(if_index));
-            management_tlv.value.at(2 + ETH_ALEN + 1 + 4) = std::byte{0x00};
-            frame.data_unit.optional_tlv.push_back(management_tlv);
-        }
+        frame.data_unit.optional_tlv.emplace_back(createLldpduTlv(device_data_));
         std::vector<std::byte> frame_buffer{frame.GetFrameBufferSize(), std::byte{0x00}};
         std::span<std::byte> frame_buffer_view{frame_buffer};
         std::span<std::byte>::iterator iter = frame.ToFrameBuffer(frame_buffer_view.begin());

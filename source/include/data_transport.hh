@@ -87,14 +87,12 @@ namespace ndisc::data
     class DataTransportSocket : public EventHandler
     {
         OwnedFileDescriptor socket_;
-        std::reference_wrapper<DeviceRepository> device_repository_;
         std::reference_wrapper<NeighbourList> neighbour_list_;
         int notify_socket_;
         bool eof_received_ = false;
 
     public:
         DataTransportSocket(OwnedFileDescriptor &&socket,
-                            DeviceRepository &device_repository,
                             NeighbourList &neighbour_list,
                             int notify_fd);
 
@@ -113,9 +111,9 @@ namespace ndisc::data
     {
         OwnedFileDescriptor socket_;
         std::vector<std::shared_ptr<DataTransportSocket>> transport_sockets_;
-        std::reference_wrapper<EventManager> event_manager_;
+        EventManager *event_manager_;
 
-        DataTransportRepository(OwnedFileDescriptor &&socket, EventManager &event_manager) : socket_(std::move(socket)), event_manager_(event_manager) {}
+        DataTransportRepository(OwnedFileDescriptor &&socket, EventManager &event_manager) : socket_(std::move(socket)), event_manager_(&event_manager) {}
 
     public:
         std::expected<void, int> Add(std::shared_ptr<DataTransportSocket> dts);
@@ -133,18 +131,16 @@ namespace ndisc::data
     {
         OwnedFileDescriptor lock_socket_;
         OwnedFileDescriptor listener_socket_;
-        std::reference_wrapper<DeviceRepository> device_repository_;
         std::reference_wrapper<NeighbourList> neighbour_list_;
         std::reference_wrapper<DataTransportRepository> dtr_;
 
-        DataTransportListenSocket(OwnedFileDescriptor &&lock_socket, OwnedFileDescriptor &&listener_socket,
-                                  DeviceRepository &device_repository,
+        DataTransportListenSocket(OwnedFileDescriptor &&lock_socket,
+                                  OwnedFileDescriptor &&listener_socket,
                                   NeighbourList &neighbour_list,
                                   DataTransportRepository &dtr);
 
     public:
         static std::expected<std::unique_ptr<DataTransportListenSocket>, int> Create(
-            DeviceRepository &device_repository,
             NeighbourList &neighbour_list,
             DataTransportRepository &dtr);
 

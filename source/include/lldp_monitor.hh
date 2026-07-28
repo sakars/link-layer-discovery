@@ -43,7 +43,7 @@ namespace ndisc
         }
 
     public:
-        static std::unique_ptr<EthernetLldpMonitor> Create(Callback callback);
+        static std::expected<std::unique_ptr<EthernetLldpMonitor>, int> Create(Callback callback);
 
         int GetSocket() const override;
 
