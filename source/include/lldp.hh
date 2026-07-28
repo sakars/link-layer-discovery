@@ -47,7 +47,7 @@ namespace lldp
     constexpr std::byte PORT_TLV_SUBTYPE_NET = std::byte{0x04};
     constexpr std::byte PORT_TLV_SUBTYPE_LOCAL = std::byte{0x07};
 
-    void logMac(std::span<const std::byte, ETH_ALEN> mac)
+    inline void logMac(std::span<const std::byte, ETH_ALEN> mac)
     {
         std::ios_base::fmtflags flags(std::cout.flags());
         std::cout << std::hex << std::setfill('0');
@@ -60,7 +60,7 @@ namespace lldp
         std::cout.flags(flags);
     }
 
-    void logIpv4(const std::optional<std::array<std::byte, sizeof(in_addr)>> &ipv4)
+    inline void logIpv4(const std::optional<std::array<std::byte, sizeof(in_addr)>> &ipv4)
     {
         if (ipv4.has_value())
         {
@@ -74,7 +74,7 @@ namespace lldp
         }
     }
 
-    void logIpv6(const std::optional<std::array<std::byte, sizeof(in6_addr)>> &ipv6)
+    inline void logIpv6(const std::optional<std::array<std::byte, sizeof(in6_addr)>> &ipv6)
     {
         if (ipv6.has_value())
         {

@@ -15,6 +15,37 @@ static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 27), "epoll_create1 miss
 
 namespace ndisc
 {
+    EventManager::EventManager(EventManager &&other) noexcept : registered_events_(std::move(other.registered_events_)),
+                                                                event_id_counter_(other.event_id_counter_),
+                                                                epfd_(std::move(other.epfd_))
+    {
+        other.event_id_counter_ = 1;
+        for (const auto &[handle, event_handler] : registered_events_)
+        {
+            if (std::shared_ptr<EventHandler> handler = event_handler.lock())
+            {
+                handler->event_manager_ = this;
+                handler->handle_ = handle;
+            }
+        }
+    }
+
+    EventManager &EventManager::operator=(EventManager &&other) noexcept
+    {
+        registered_events_ = std::move(other.registered_events_);
+        event_id_counter_ = other.event_id_counter_;
+        epfd_ = std::move(other.epfd_);
+        other.event_id_counter_ = 1;
+        for (const auto &[handle, event_handler] : registered_events_)
+        {
+            if (std::shared_ptr<EventHandler> handler = event_handler.lock())
+            {
+                handler->event_manager_ = this;
+                handler->handle_ = handle;
+            }
+        }
+        return *this;
+    }
 
     std::expected<EventManager, int> EventManager::Create()
     {

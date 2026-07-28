@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <unistd.h>
+#include <vector>
 
 #include "owned_file_descriptor.hh"
 
@@ -24,6 +25,28 @@ namespace ndisc
         }
 
     public:
+        EventManager(EventManager &&) noexcept;
+        EventManager(const EventManager &) = delete;
+        EventManager &operator=(EventManager &&) noexcept;
+        EventManager &operator=(const EventManager &) = delete;
+        ~EventManager()
+        {
+            std::vector<uint64_t> handles{};
+            handles.reserve(registered_events_.size());
+            for (const auto &[handle, event] : registered_events_)
+            {
+                handles.push_back(handle);
+            }
+            for (const auto &handle : handles)
+            {
+                std::expected<void, int> remove_result = Remove(handle);
+                if (!remove_result.has_value())
+                {
+                    std::cerr << "Failed to remove event from event manager\n";
+                }
+            }
+        }
+
         static std::expected<EventManager, int> Create();
 
         std::expected<size_t, int> Add(const std::shared_ptr<EventHandler> &handler);
