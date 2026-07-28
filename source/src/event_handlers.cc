@@ -60,6 +60,18 @@ namespace ndisc
 
     std::expected<size_t, int> EventManager::Add(const std::shared_ptr<EventHandler> &handler)
     {
+        if (handler->event_manager_ != nullptr && handler->handle_ != 0)
+        {
+            std::expected<void, int> remove_result = handler->event_manager_->Remove(handler->handle_);
+            if (!remove_result.has_value())
+            {
+                std::cerr << "Failed to remove event handler from old event manager, errno: " << remove_result.error() << "\n";
+            }
+        }
+        while (registered_events_.contains(event_id_counter_))
+        {
+            event_id_counter_++;
+        }
         epoll_event event{};
         event.data.u64 = event_id_counter_;
         event.events = handler->GetEvents();

@@ -371,7 +371,7 @@ namespace ndisc::data
         NeighbourList &neighbour_list,
         DataTransportRepository &dtr)
     {
-        OwnedFileDescriptor lock_socket = open(
+        OwnedFileDescriptor lock_socket = open( // NOLINT(cppcoreguidelines-pro-type-vararg) No good alternative
             SOCKET_LOCK.c_str(),
             O_RDWR | O_CREAT,
             static_cast<mode_t>(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH));
