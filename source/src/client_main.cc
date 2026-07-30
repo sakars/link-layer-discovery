@@ -104,7 +104,7 @@ int main(int argc, const char *argv[])
     std::expected<client::ClientReceiverSocket, int> client = client::ClientReceiverSocket::Create();
     if (!client.has_value())
     {
-        std::cerr << "Failed to create DataTransportClient, errno " << client.error();
+        std::cerr << "Failed to create ClientReceiver, errno " << client.error();
     }
     if (run_continuous)
     {

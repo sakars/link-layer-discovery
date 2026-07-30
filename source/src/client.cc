@@ -216,7 +216,7 @@ namespace client
         DumpData(request_id);
     }
 
-    static inline void sendDataTransportPacket(const OwnedFileDescriptor &socket, ClientPacket dtp)
+    static inline void sendClientPacket(const OwnedFileDescriptor &socket, ClientPacket dtp)
     {
         iovec iov{
             .iov_base = &dtp,
@@ -251,7 +251,7 @@ namespace client
         std::ranges::copy(chassis_id, entry.name.begin());
         entry.name_length = chassis_id.size();
         std::cout << "Chassis length: " << chassis_id.size();
-        sendDataTransportPacket(socket, ClientPacket(request_id, entry));
+        sendClientPacket(socket, ClientPacket(request_id, entry));
     }
 
     static inline void sendNeighbourEntry(uint16_t request_id,
@@ -272,7 +272,7 @@ namespace client
         }
         entry.port_size = port_id.size();
         std::ranges::copy(port_id, entry.neighbour_port.begin());
-        sendDataTransportPacket(socket, ClientPacket(request_id, entry));
+        sendClientPacket(socket, ClientPacket(request_id, entry));
     }
 
     void ClientSenderSocket::DumpData(uint16_t request_id)
@@ -292,7 +292,7 @@ namespace client
                         .address = neighbour.ipv4_address.value(),
                         .padding = {},
                     };
-                    sendDataTransportPacket(socket_, ClientPacket(request_id, entry));
+                    sendClientPacket(socket_, ClientPacket(request_id, entry));
                 }
                 if (neighbour.ipv6_address.has_value())
                 {
@@ -301,13 +301,13 @@ namespace client
                         .address = neighbour.ipv6_address.value(),
                         .padding = {},
                     };
-                    sendDataTransportPacket(socket_, ClientPacket(request_id, entry));
+                    sendClientPacket(socket_, ClientPacket(request_id, entry));
                 }
                 neighbour_id_counter++;
             }
             chassis_id_counter++;
         }
-        sendDataTransportPacket(socket_, ClientPacket());
+        sendClientPacket(socket_, ClientPacket());
     }
 
     int ClientSenderSocket::GetSocket() const
@@ -338,7 +338,7 @@ namespace client
         std::cout << "Read Data Transport Request " << result << "\n";
         if (result < 0)
         {
-            std::cerr << "Failed to read DataTransportRepository eventfd\n";
+            std::cerr << "Failed to read ClientRepository eventfd\n";
         }
         std::cout << "Value " << value << "\n";
         for (long i = static_cast<long>(transport_sockets_.size()); i > 0; i--)
