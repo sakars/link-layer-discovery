@@ -10,7 +10,7 @@
 #include <span>
 #include <stdint.h>
 
-namespace ndisc
+namespace lldp
 {
     size_t LLDPDUTypeLengthValue::GetFrameBufferSize() const
     {
@@ -141,4 +141,4 @@ namespace ndisc
         return iter;
     }
 
-} // namespace ndisc
+} // namespace lldp

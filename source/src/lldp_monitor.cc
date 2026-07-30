@@ -50,13 +50,13 @@ namespace ndisc
         return std::nullopt;
     }
 
-    NeighbourEntry lldpduToNeighbourEntry(const LLDPDataUnit &lldpdu)
+    NeighbourEntry lldpduToNeighbourEntry(const lldp::LLDPDataUnit &lldpdu)
     {
         std::array<std::byte, 2> time_to_live_data{lldpdu.time_to_live.value[0], lldpdu.time_to_live.value[1]};
 
         std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address = std::nullopt;
         std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address = std::nullopt;
-        for (const LLDPDUTypeLengthValue &tlv : lldpdu.optional_tlv)
+        for (const lldp::LLDPDUTypeLengthValue &tlv : lldpdu.optional_tlv)
         {
             if (tlv.type == lldp::MANAGEMENT_ADDRESS)
             {
@@ -114,7 +114,7 @@ namespace ndisc
 
         std::array<char, IF_NAMESIZE> interface_name{};
         if_indextoname(address.sll_ifindex, interface_name.data());
-        const std::optional<LLDPDataUnit> data_unit = LLDPDataUnit::FromSpan(frame);
+        const std::optional<lldp::LLDPDataUnit> data_unit = lldp::LLDPDataUnit::FromSpan(frame);
         if (!data_unit.has_value())
         {
             std::cerr << "Failed to parse a data_unit\n";
