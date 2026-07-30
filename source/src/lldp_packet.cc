@@ -32,8 +32,9 @@ namespace ndisc
         {
             return std::nullopt;
         }
-        const uint16_t tlv_header_raw = (std::to_integer<uint16_t>(tlv_bytes[1]) << 8) | std::to_integer<uint16_t>(tlv_bytes[0]);
-        const uint16_t tlv_header = ntohs(tlv_header_raw);
+        uint16_t tlv_header_network_order = 0;
+        std::ranges::copy(tlv_bytes.first<sizeof(uint16_t)>(), std::as_writable_bytes(std::span(&tlv_header_network_order, 1)).begin());
+        const uint16_t tlv_header = ntohs(tlv_header_network_order);
         const ssize_t length = tlv_header & lldp::TYPE_MASK;
         const lldp::TLV type = (lldp::TLV)(tlv_header >> lldp::TYPE_BIT_OFFSET);
         if (length + sizeof(tlv_header) > tlv_bytes.size())
