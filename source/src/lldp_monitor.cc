@@ -66,12 +66,12 @@ namespace ndisc
                     if (std::span<const std::byte, sizeof(in_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in_addr)>>(&*address_string))
                     {
                         ipv4_address = std::array<std::byte, sizeof(in_addr)>{};
-                        std::copy(addr->begin(), addr->end(), ipv4_address->begin());
+                        std::ranges::copy(*addr, ipv4_address->begin());
                     }
                     else if (std::span<const std::byte, sizeof(in6_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in6_addr)>>(&*address_string))
                     {
                         ipv6_address = std::array<std::byte, sizeof(in6_addr)>{};
-                        std::copy(addr->begin(), addr->end(), ipv6_address->begin());
+                        std::ranges::copy(*addr, ipv6_address->begin());
                     }
                 }
             }
@@ -123,7 +123,7 @@ namespace ndisc
         NeighbourEntry entry = lldpduToNeighbourEntry(*data_unit);
         std::string chassis;
         chassis.resize(entry.chassis_id.size());
-        std::memcpy(chassis.data(), entry.chassis_id.data(), entry.chassis_id.size());
+        std::ranges::copy(entry.chassis_id, std::as_writable_bytes(std::span(chassis)).begin());
         neighbour_list.chassis_map[entry.chassis_id][entry.port_id] = std::move(entry);
     }
 

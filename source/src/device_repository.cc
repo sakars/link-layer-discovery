@@ -158,7 +158,7 @@ namespace ndisc
                 if (attribute.value.size() == ETH_ALEN)
                 {
                     device.mac_address = std::array<std::byte, ETH_ALEN>{};
-                    std::copy(attribute.value.begin(), attribute.value.end(), device.mac_address.value().begin());
+                    std::ranges::copy(attribute.value, device.mac_address.value().begin());
                 }
                 else
                 {
@@ -200,14 +200,14 @@ namespace ndisc
                     {
                         std::optional<std::array<std::byte, sizeof(in_addr)>> &device_ip = devices_[index].ipv4_address;
                         device_ip = std::array<std::byte, sizeof(in_addr)>{};
-                        std::copy(attribute.value.begin(), attribute.value.end(), device_ip->begin());
+                        std::ranges::copy(attribute.value, device_ip->begin());
                     }
                     else if (address_message.content.address_info.ifa_family == AF_INET6 &&
                              attribute.value.size() == sizeof(in6_addr))
                     {
                         std::optional<std::array<std::byte, sizeof(in6_addr)>> &device_ipv6 = devices_[index].ipv6_address;
                         device_ipv6 = std::array<std::byte, sizeof(in6_addr)>{};
-                        std::copy(attribute.value.begin(), attribute.value.end(), device_ipv6->begin());
+                        std::ranges::copy(attribute.value, device_ipv6->begin());
                     }
                 }
             }

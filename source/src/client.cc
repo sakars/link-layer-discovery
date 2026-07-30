@@ -21,25 +21,25 @@ namespace client
     ClientPacket::ClientPacket(uint16_t rid, Ipv6Entry &entry) : request_id(rid), type(IPV6_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(Ipv6Entry));
-        std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
+        std::ranges::copy(entry_data_span, data.begin());
     }
 
     ClientPacket::ClientPacket(uint16_t rid, IpEntry &entry) : request_id(rid), type(IP_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(IpEntry));
-        std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
+        std::ranges::copy(entry_data_span, data.begin());
     }
 
     ClientPacket::ClientPacket(uint16_t rid, NeighbourEntry &entry) : request_id(rid), type(NEIGHBOUR_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(NeighbourEntry));
-        std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
+        std::ranges::copy(entry_data_span, data.begin());
     }
 
     ClientPacket::ClientPacket(uint16_t rid, ChassisEntry &entry) : request_id(rid), type(CHASSIS_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(ChassisEntry));
-        std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
+        std::ranges::copy(entry_data_span, data.begin());
     }
 
     static void sendRequest(const OwnedFileDescriptor &file_descriptor, uint16_t request_id)
@@ -147,7 +147,7 @@ namespace client
             .sun_family = AF_UNIX,
             .sun_path = {},
         };
-        std::copy(std::begin(SOCKET_PATH), std::end(SOCKET_PATH), std::begin(unix_address.sun_path));
+        std::ranges::copy(SOCKET_PATH, std::begin(unix_address.sun_path));
         int bind_result = bind(*listen_socket, reinterpret_cast<const sockaddr *>(&unix_address), sizeof(unix_address));
         if (bind_result != 0)
         {
@@ -442,7 +442,7 @@ namespace client
             .sun_path = {},
         };
 
-        std::copy(std::begin(SOCKET_PATH), std::end(SOCKET_PATH), std::begin(address.sun_path));
+        std::ranges::copy(SOCKET_PATH, std::begin(address.sun_path));
         int bind_result = connect(*socket_fd, reinterpret_cast<sockaddr *>(&address), sizeof(address));
         if (bind_result < 0)
         {
