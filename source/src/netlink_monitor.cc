@@ -405,12 +405,12 @@ namespace netlink
         }
     }
 
-    static std::vector<ndisc::LLDPDUTypeLengthValue> createLldpduOptionalTlvs(const DeviceData &device_data)
+    static std::vector<lldp::LLDPDUTypeLengthValue> createLldpduOptionalTlvs(const DeviceData &device_data)
     {
-        std::vector<ndisc::LLDPDUTypeLengthValue> tlvs{};
+        std::vector<lldp::LLDPDUTypeLengthValue> tlvs{};
         if (device_data.ipv4_address.has_value())
         {
-            ndisc::LLDPDUTypeLengthValue management_tlv;
+            lldp::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(1 + 1 + sizeof(in_addr) + 1 + 4 + 1);
             management_tlv.value.at(0) = std::byte(1 + sizeof(in_addr));
@@ -424,7 +424,7 @@ namespace netlink
         }
         if (device_data.ipv6_address.has_value())
         {
-            ndisc::LLDPDUTypeLengthValue management_tlv;
+            lldp::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(1 + 1 + sizeof(in6_addr) + 1 + 4 + 1);
             management_tlv.value.at(0) = std::byte(1 + sizeof(in6_addr));
@@ -438,7 +438,7 @@ namespace netlink
         }
         if (!device_data.ipv4_address.has_value() && !device_data.ipv6_address.has_value() && device_data.mac_address.has_value())
         {
-            ndisc::LLDPDUTypeLengthValue management_tlv;
+            lldp::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(1 + 1 + ETH_ALEN + 1 + 4 + 1);
             management_tlv.value.at(0) = std::byte(1 + ETH_ALEN);
@@ -460,7 +460,7 @@ namespace netlink
             return;
         }
         static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
-        ndisc::LLDPEthernetFrame frame{};
+        lldp::LLDPEthernetFrame frame{};
         std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
         std::memcpy(std::begin(frame.header.ether_shost), device_data_.mac_address.value().data(), device_data_.mac_address.value().size());
         frame.header.ether_type = htons(ETH_P_LLDP);

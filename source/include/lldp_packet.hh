@@ -9,7 +9,7 @@
 
 #include "lldp.hh"
 
-namespace ndisc
+namespace lldp
 {
     struct LLDPDUTypeLengthValue
     {
@@ -44,6 +44,6 @@ namespace ndisc
     };
 
     // LLDPDUTypeLengthValue createChassisIdTLV();
-} // namespace ndisc
+} // namespace lldp
 
 #endif // LLDP_PACKET_HH
