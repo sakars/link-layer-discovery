@@ -1,5 +1,5 @@
-#ifndef DATA_TRANSPORT_HH
-#define DATA_TRANSPORT_HH
+#ifndef CLIENT_HH
+#define CLIENT_HH
 
 #include <array>
 #include <errno.h>
@@ -16,7 +16,7 @@
 #include "lldp_monitor.hh"
 #include "owned_file_descriptor.hh"
 
-namespace ndisc::data
+namespace client
 {
     enum NeighbourDataType : uint8_t
     {
@@ -66,35 +66,35 @@ namespace ndisc::data
     static_assert(std::is_trivially_copyable_v<Ipv6Entry>);
     static_assert(sizeof(Ipv6Entry) == DATA_MAX_SIZE);
 
-    struct DataTransportPacket
+    struct ClientPacket
     {
         uint16_t request_id = 0;
         NeighbourDataType type = END_OF_DATA;
         std::array<std::byte, DATA_MAX_SIZE> data{};
 
-        DataTransportPacket();
+        ClientPacket();
 
-        DataTransportPacket(uint16_t rid, Ipv6Entry &entry);
+        ClientPacket(uint16_t rid, Ipv6Entry &entry);
 
-        DataTransportPacket(uint16_t rid, IpEntry &entry);
+        ClientPacket(uint16_t rid, IpEntry &entry);
 
-        DataTransportPacket(uint16_t rid, NeighbourEntry &entry);
+        ClientPacket(uint16_t rid, NeighbourEntry &entry);
 
-        DataTransportPacket(uint16_t rid, ChassisEntry &entry);
+        ClientPacket(uint16_t rid, ChassisEntry &entry);
     };
-    static_assert(std::is_trivially_copyable_v<DataTransportPacket>);
+    static_assert(std::is_trivially_copyable_v<ClientPacket>);
 
-    class DataTransportSocket : public EventHandler
+    class ClientSenderSocket : public ndisc::EventHandler
     {
-        OwnedFileDescriptor socket_;
-        std::reference_wrapper<NeighbourList> neighbour_list_;
+        ndisc::OwnedFileDescriptor socket_;
+        ndisc::NeighbourList *neighbour_list_;
         int notify_socket_;
         bool eof_received_ = false;
 
     public:
-        DataTransportSocket(OwnedFileDescriptor &&socket,
-                            NeighbourList &neighbour_list,
-                            int notify_fd);
+        ClientSenderSocket(ndisc::OwnedFileDescriptor &&socket,
+                           ndisc::NeighbourList &neighbour_list,
+                           int notify_fd);
 
         bool EofReceived() const;
 
@@ -107,18 +107,18 @@ namespace ndisc::data
         uint32_t GetEvents() const override;
     };
 
-    class DataTransportRepository : public EventHandler
+    class ClientRepository : public ndisc::EventHandler
     {
-        OwnedFileDescriptor socket_;
-        std::vector<std::shared_ptr<DataTransportSocket>> transport_sockets_;
-        EventManager *event_manager_;
+        ndisc::OwnedFileDescriptor socket_;
+        std::vector<std::shared_ptr<ClientSenderSocket>> transport_sockets_;
+        ndisc::EventManager *event_manager_;
 
-        DataTransportRepository(OwnedFileDescriptor &&socket, EventManager &event_manager) : socket_(std::move(socket)), event_manager_(&event_manager) {}
+        ClientRepository(ndisc::OwnedFileDescriptor &&socket, ndisc::EventManager &event_manager) : socket_(std::move(socket)), event_manager_(&event_manager) {}
 
     public:
-        std::expected<void, int> Add(std::shared_ptr<DataTransportSocket> dts);
+        std::expected<void, int> Add(std::shared_ptr<ClientSenderSocket> dts);
 
-        static std::expected<std::unique_ptr<DataTransportRepository>, int> Create(EventManager &event_manager);
+        static std::expected<std::unique_ptr<ClientRepository>, int> Create(ndisc::EventManager &event_manager);
 
         void Call() override;
 
@@ -127,22 +127,22 @@ namespace ndisc::data
         uint32_t GetEvents() const override;
     };
 
-    class DataTransportListenSocket : public EventHandler
+    class ClientListenSocket : public ndisc::EventHandler
     {
-        OwnedFileDescriptor lock_socket_;
-        OwnedFileDescriptor listener_socket_;
-        std::reference_wrapper<NeighbourList> neighbour_list_;
-        std::reference_wrapper<DataTransportRepository> dtr_;
+        ndisc::OwnedFileDescriptor lock_socket_;
+        ndisc::OwnedFileDescriptor listener_socket_;
+        ndisc::NeighbourList *neighbour_list_;
+        ClientRepository *dtr_;
 
-        DataTransportListenSocket(OwnedFileDescriptor &&lock_socket,
-                                  OwnedFileDescriptor &&listener_socket,
-                                  NeighbourList &neighbour_list,
-                                  DataTransportRepository &dtr);
+        ClientListenSocket(ndisc::OwnedFileDescriptor &&lock_socket,
+                           ndisc::OwnedFileDescriptor &&listener_socket,
+                           ndisc::NeighbourList &neighbour_list,
+                           ClientRepository &dtr);
 
     public:
-        static std::expected<std::unique_ptr<DataTransportListenSocket>, int> Create(
-            NeighbourList &neighbour_list,
-            DataTransportRepository &dtr);
+        static std::expected<std::unique_ptr<ClientListenSocket>, int> Create(
+            ndisc::NeighbourList &neighbour_list,
+            ClientRepository &dtr);
 
         void Call() override;
 
@@ -157,15 +157,15 @@ namespace ndisc::data
         }
     };
 
-    class DataTransportClient
+    class ClientReceiverSocket
     {
-        OwnedFileDescriptor socket_;
+        ndisc::OwnedFileDescriptor socket_;
         uint16_t request_id_ = 1;
 
-        DataTransportClient(OwnedFileDescriptor &&socket_fd) : socket_(std::move(socket_fd)) {}
+        ClientReceiverSocket(ndisc::OwnedFileDescriptor &&socket_fd) : socket_(std::move(socket_fd)) {}
 
     public:
-        static std::expected<DataTransportClient, int> Create();
+        static std::expected<ClientReceiverSocket, int> Create();
 
         struct DeviceData
         {
@@ -178,6 +178,6 @@ namespace ndisc::data
         std::map<uint16_t, DeviceData> GetData();
     };
 
-} // namespace ndisc::data
+} // namespace client
 
-#endif // DATA_TRANSPORT_HH
+#endif // CLIENT_HH
