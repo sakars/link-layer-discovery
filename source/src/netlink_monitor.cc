@@ -461,8 +461,10 @@ namespace netlink
             return {};
         }
         lldp::LLDPEthernetFrame frame{};
-        std::copy(MULTICAST_ADDRESS.begin(), MULTICAST_ADDRESS.end(), std::begin(frame.header.ether_dhost));
-        std::memcpy(std::begin(frame.header.ether_shost), device_data.mac_address.value().data(), device_data.mac_address.value().size());
+        std::ranges::copy(MULTICAST_ADDRESS, std::begin(frame.header.ether_dhost));
+        std::ranges::copy(
+            device_data.mac_address.value(),
+            std::as_writable_bytes(std::span(frame.header.ether_shost)).begin());
         frame.header.ether_type = htons(ETH_P_LLDP);
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
         std::string chassis = getMachineId();
@@ -474,11 +476,11 @@ namespace netlink
         frame.data_unit.port_id.type = lldp::PORT_ID;
         frame.data_unit.port_id.value.resize(1 + ETH_ALEN);
         frame.data_unit.port_id.value[0] = lldp::PORT_ID_MAC_TYPE;
-        std::memcpy(std::next(frame.data_unit.port_id.value.data(), 1), device_data.mac_address.value().data(), ETH_ALEN);
+        std::ranges::copy(device_data.mac_address.value(), frame.data_unit.port_id.value.begin() + 1);
         frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
         frame.data_unit.time_to_live.value.resize(sizeof(ttl));
         const std::array<std::byte, sizeof(ttl)> network_ttl = std::bit_cast<std::array<std::byte, sizeof(ttl)>>(htons(ttl));
-        std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
+        std::ranges::copy(network_ttl, frame.data_unit.time_to_live.value.begin());
         frame.data_unit.optional_tlv = createLldpduOptionalTlvs(device_data);
         return frame;
     }
