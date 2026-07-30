@@ -108,6 +108,11 @@ namespace ndisc
 
     void DeviceRepository::Tick(const uint64_t &delta_seconds)
     {
+        if (device_reader_ == nullptr || ip_reader_ == nullptr)
+        {
+            std::cerr << "DeviceRepository called Tick on a moved-out-of value\n";
+            return;
+        }
         device_reader_->Tick(delta_seconds);
         ip_reader_->Tick(delta_seconds);
         if (sync_timeout_ > static_cast<int>(delta_seconds))
