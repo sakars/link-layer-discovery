@@ -15,10 +15,6 @@ libfiles += owned_file_descriptor
 object_files = $(addprefix ../out/,$(addsuffix .o, $(libfiles)))
 input_files = $(addprefix src/,$(addsuffix .cc, $(libfiles)))
 
-test_files  = inplace_vector
-
-test_executables = $(addprefix ../test_executables/test_, $(test_files))
-
 WARNINGS = -Wall -Wextra -Werror 
 
 GCC = g++ -g -std=c++23 $(WARNINGS) -I./include
@@ -35,13 +31,7 @@ all: ../out/ndisc ../out/ndisc_client $(test_executables)
 $(object_files): ../out/%.o : src/%.cc include/*.hh
 	$(GCC) -c $< -o $@
 
-$(test_executables): ../test_executables/% : test/%.cc include/*.hh $(object_files)
-	$(GCC) $(object_files) $< -o $@
-
 clean:
-	rm -rf ../out
-
-test_all: $(test_executables)
-	$(foreach exe, $(test_executables), $(exe); )
+	rm -rf ../out/*
 
 .PHONY: clean all test_all
