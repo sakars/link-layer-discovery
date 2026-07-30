@@ -24,8 +24,9 @@ namespace ndisc
         }
         else
         {
-            std::cout << "None\t";
+            std::cout << "None";
         }
+        std::cout << "\t";
         lldp::logIpv4(device.ipv4_address);
         std::cout << "\t";
         lldp::logIpv6(device.ipv6_address);
@@ -34,14 +35,7 @@ namespace ndisc
 
     static void dumpNeighbourEntry(const ndisc::NeighbourEntry &neighbour)
     {
-        if (neighbour.port_id.size() == ETH_ALEN)
-        {
-            lldp::logMac(std::span<const std::byte, ETH_ALEN>{neighbour.port_id});
-        }
-        else
-        {
-            std::cout << "Non-MAC";
-        }
+        lldp::logPort(neighbour.port_id);
         std::cout << "\t";
         std::cout << neighbour.time_to_live << "\t";
         lldp::logIpv4(neighbour.ipv4_address);
@@ -53,6 +47,7 @@ namespace ndisc
     void ClockHandler::DumpInfo()
     {
         std::cout << CLEAR_SCREEN;
+        std::cout << "My Id: " << netlink::getMachineId() << "\n";
         std::cout << "Device data:\n";
         std::cout << "IDX\t"
                   << "Name\t"

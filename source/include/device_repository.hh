@@ -104,6 +104,7 @@ namespace ndisc
                                                               ip_reader_(std::move(other.ip_reader_)),
                                                               devices_(std::move(other.devices_))
         {
+            other.ClearCallbacks();
             other.sync_timeout_ = -1;
             other.monitor_.reset();
             other.device_reader_.reset();

@@ -56,7 +56,6 @@ namespace ndisc
 
         std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address = std::nullopt;
         std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address = std::nullopt;
-        std::cout << "Found " << lldpdu.optional_tlv.size() << " tlvs\n";
         for (const LLDPDUTypeLengthValue &tlv : lldpdu.optional_tlv)
         {
             if (tlv.type == lldp::MANAGEMENT_ADDRESS)
@@ -66,13 +65,11 @@ namespace ndisc
                 {
                     if (std::span<const std::byte, sizeof(in_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in_addr)>>(&*address_string))
                     {
-                        std::cout << "IPv4 received\n";
                         ipv4_address = std::array<std::byte, sizeof(in_addr)>{};
                         std::copy(addr->begin(), addr->end(), ipv4_address->begin());
                     }
                     else if (std::span<const std::byte, sizeof(in6_addr)> *addr = std::get_if<std::span<const std::byte, sizeof(in6_addr)>>(&*address_string))
                     {
-                        std::cout << "IPv6 received\n";
                         ipv6_address = std::array<std::byte, sizeof(in6_addr)>{};
                         std::copy(addr->begin(), addr->end(), ipv6_address->begin());
                     }

@@ -106,9 +106,10 @@ inline void unwrapOrLog(std::expected<void, int> value, const S &message)
     }
 }
 
-std::vector<uint64_t> initializeHandlers(
+std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
     ndisc::EventManager &manager,
     ndisc::NeighbourList &neighbour_list,
+    ndisc::LldpRepository &lldp,
     bool &interrupt_flag)
 {
     std::shared_ptr<ndisc::EthernetLldpMonitor> monitor =
@@ -126,11 +127,6 @@ std::vector<uint64_t> initializeHandlers(
             ndisc::data::DataTransportListenSocket::Create(neighbour_list, *dtr),
             "Failed to create DataTransportListenSocket");
 
-    ndisc::LldpRepository lldp =
-        unwrapOrLog(
-            ndisc::LldpRepository::Create(manager),
-            "Failed to create LldpRepository");
-
     std::shared_ptr<ndisc::ClockHandler> clock =
         unwrapOrLog(
             ndisc::ClockHandler::Create(neighbour_list, lldp),
@@ -141,21 +137,21 @@ std::vector<uint64_t> initializeHandlers(
             InterruptHandler::Create(&interrupt_flag),
             "Failed to create InterruptHandler");
 
-    std::vector<uint64_t> handles{};
-    for (const std::shared_ptr<ndisc::EventHandler> &handler : {
-             std::shared_ptr<ndisc::EventHandler>(clock),
-             std::shared_ptr<ndisc::EventHandler>(monitor),
-             std::shared_ptr<ndisc::EventHandler>(dtr),
-             std::shared_ptr<ndisc::EventHandler>(dtls),
-             std::shared_ptr<ndisc::EventHandler>(interrupt_handler),
-         })
+    std::vector<std::shared_ptr<ndisc::EventHandler>> handlers{
+        clock,
+        monitor,
+        dtr,
+        dtls,
+        interrupt_handler,
+    };
+    for (const std::shared_ptr<ndisc::EventHandler> &handler : handlers)
     {
-        handles.push_back(unwrapOrLog(
+        unwrapOrLog(
             manager.Add(handler),
-            "Failed to add event handler to event manager"));
+            "Failed to add event handler to event manager");
     }
 
-    return handles;
+    return handlers;
 }
 
 int main()
@@ -167,19 +163,24 @@ int main()
 
     ndisc::NeighbourList neighbour_list;
 
+    ndisc::LldpRepository lldp =
+        unwrapOrLog(
+            ndisc::LldpRepository::Create(manager),
+            "Failed to create LldpRepository");
+
     bool interrupt_flag = false;
 
-    std::vector<uint64_t> handles = initializeHandlers(manager, neighbour_list, interrupt_flag);
+    std::vector<std::shared_ptr<ndisc::EventHandler>> handlers = initializeHandlers(manager, neighbour_list, lldp, interrupt_flag);
 
     while (!interrupt_flag) // NOLINT(bugprone-infinite-loop)
     {
         manager.ProcessEvents();
     }
 
-    for (const uint64_t &handle : handles)
+    for (const std::shared_ptr<ndisc::EventHandler> &handler : handlers)
     {
         unwrapOrLog(
-            manager.Remove(handle),
+            manager.Remove(handler),
             "Failed to remove event from event manager");
     }
 

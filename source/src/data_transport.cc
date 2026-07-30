@@ -118,10 +118,15 @@ namespace ndisc::data
         return std::unexpected(0);
     }
 
-    static void prepareDirectory()
+    static void ensureRuntimeDirectory()
     {
         std::filesystem::path path = SOCKET_PATH;
         std::filesystem::create_directories(path.remove_filename());
+    }
+
+    static void prepareDirectory()
+    {
+        ensureRuntimeDirectory();
         unlink(SOCKET_PATH.c_str());
     }
 
@@ -371,6 +376,7 @@ namespace ndisc::data
         NeighbourList &neighbour_list,
         DataTransportRepository &dtr)
     {
+        ensureRuntimeDirectory();
         OwnedFileDescriptor lock_socket = open( // NOLINT(cppcoreguidelines-pro-type-vararg) No good alternative
             SOCKET_LOCK.c_str(),
             O_RDWR | O_CREAT,

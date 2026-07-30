@@ -190,7 +190,6 @@ namespace ndisc
             {
                 if (attribute.attribute_header.rta_type == IFA_ADDRESS)
                 {
-                    std::cout << "ifa family: " << (uint16_t)address_message.content.address_info.ifa_family << "\n";
                     if (address_message.content.address_info.ifa_family == AF_INET &&
                         attribute.value.size() == sizeof(in_addr))
                     {

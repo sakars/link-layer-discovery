@@ -19,6 +19,8 @@
 namespace netlink
 {
 
+    std::string getMachineId();
+
     struct TLVView
     {
         rtattr attribute_header;
@@ -156,9 +158,12 @@ namespace netlink
     public:
         LldpSender(ndisc::OwnedFileDescriptor &socket, const DeviceData &device_data) : socket_fd_(&socket), device_data_(device_data)
         {
-            if (device_data_.device_operational) {
+            if (device_data_.device_operational)
+            {
                 EnableSender();
-            } else {
+            }
+            else
+            {
                 DisableSender();
             }
         }

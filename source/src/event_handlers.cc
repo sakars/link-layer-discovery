@@ -106,6 +106,15 @@ namespace ndisc
         return {};
     }
 
+    std::expected<void, int> EventManager::Remove(const std::shared_ptr<EventHandler> &handler)
+    {
+        if (handler->event_manager_ != this)
+        {
+            return std::unexpected(ENOENT);
+        }
+        return Remove(handler->handle_);
+    }
+
     void EventManager::ProcessEvents()
     {
         std::vector<size_t> expired_handlers{};

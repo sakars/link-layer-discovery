@@ -55,50 +55,6 @@ static void logPortType(const std::vector<std::byte> &port)
     }
 }
 
-static void logPort(const std::vector<std::byte> &port)
-{
-    if (port.empty())
-    {
-        std::cout << "Missing";
-        return;
-    }
-    if (port[0] == lldp::PORT_TLV_SUBTYPE_MAC && port.size() == 1 + ETH_ALEN)
-    {
-        lldp::logMac(std::span<const std::byte, ETH_ALEN>{port.begin() + 1, ETH_ALEN});
-    }
-    else if (port[0] == lldp::PORT_TLV_SUBTYPE_LOCAL)
-    {
-        std::string_view local_view = std::string_view{reinterpret_cast<const char *>((port.begin() + 1).base()), port.size() - 1};
-        std::cout << local_view;
-    }
-    else if (port[0] == lldp::PORT_TLV_SUBTYPE_NET && port.size() > 1)
-    {
-        if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC && port.size() == 1 + 1 + ETH_ALEN)
-        {
-            lldp::logMac(std::span<const std::byte, ETH_ALEN>{std::next(port.begin(), 2), ETH_ALEN});
-        }
-        else if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4 && port.size() == 1 + 1 + sizeof(in_addr))
-        {
-            std::string address;
-            address.resize(INET_ADDRSTRLEN);
-            std::cout << inet_ntop(AF_INET, std::next(port.begin(), 2).base(), address.data(), address.size());
-        }
-        else if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6 && port.size() == 1 + 1 + sizeof(in6_addr))
-        {
-            std::string address;
-            address.resize(INET6_ADDRSTRLEN);
-            std::cout << inet_ntop(AF_INET6, std::next(port.begin(), 2).base(), address.data(), address.size());
-        }
-        else
-        {
-            for (const std::byte &port_byte : port)
-            {
-                std::cout << std::setw(2) << std::to_integer<int>(port_byte) << " ";
-            }
-        }
-    }
-}
-
 void dumpNeighbourData(ndisc::data::DataTransportClient &client)
 {
     auto map = client.GetData();
@@ -111,7 +67,7 @@ void dumpNeighbourData(ndisc::data::DataTransportClient &client)
         std::cout << chassis << "\t";
         logPortType(value.port);
         std::cout << "\t";
-        logPort(value.port);
+        lldp::logPort(value.port);
         std::cout << "\t";
         lldp::logIpv4(value.ipv4_address);
         std::cout << "\t";

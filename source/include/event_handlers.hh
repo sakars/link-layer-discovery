@@ -52,6 +52,7 @@ namespace ndisc
         std::expected<size_t, int> Add(const std::shared_ptr<EventHandler> &handler);
 
         std::expected<void, int> Remove(size_t handler_id);
+        std::expected<void, int> Remove(const std::shared_ptr<EventHandler> &handler);
 
         static constexpr int MAX_CONCURRENT_EVENTS = 10;
         static constexpr int EPOLL_TIMEOUT = 100;
