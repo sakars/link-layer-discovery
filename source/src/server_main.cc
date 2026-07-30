@@ -120,12 +120,12 @@ std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
     std::shared_ptr<client::ClientRepository> dtr =
         unwrapOrLog(
             client::ClientRepository::Create(manager),
-            "Failed to create DataTransportRepository");
+            "Failed to create ClientRepository");
 
     std::shared_ptr<client::ClientListenSocket> dtls =
         unwrapOrLog(
             client::ClientListenSocket::Create(neighbour_list, *dtr),
-            "Failed to create DataTransportListenSocket");
+            "Failed to create ClientListenSocket");
 
     std::shared_ptr<ndisc::ClockHandler> clock =
         unwrapOrLog(
