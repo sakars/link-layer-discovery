@@ -413,13 +413,14 @@ namespace netlink
             lldp::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(1 + 1 + sizeof(in_addr) + 1 + 4 + 1);
-            management_tlv.value.at(0) = std::byte(1 + sizeof(in_addr));
-            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4;
-            std::copy(device_data.ipv4_address->begin(), device_data.ipv4_address->end(), std::next(management_tlv.value.begin(), 2));
-            management_tlv.value.at(2 + sizeof(in_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            auto iter = management_tlv.value.begin();
+            *iter++ = std::byte(1 + sizeof(in_addr));
+            *iter++ = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4;
+            iter = std::ranges::copy(device_data.ipv4_address.value(), iter).out;
+            *iter++ = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
             uint32_t if_index = htonl(device_data.if_index);
-            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in_addr) + 1).base(), &if_index, sizeof(if_index));
-            management_tlv.value.at(2 + sizeof(in_addr) + 1 + 4) = std::byte{0x00};
+            iter = std::ranges::copy(std::as_bytes(std::span(&if_index, 1)), iter).out;
+            *iter++ = std::byte{0x00};
             tlvs.push_back(management_tlv);
         }
         if (device_data.ipv6_address.has_value())
@@ -427,13 +428,14 @@ namespace netlink
             lldp::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(1 + 1 + sizeof(in6_addr) + 1 + 4 + 1);
-            management_tlv.value.at(0) = std::byte(1 + sizeof(in6_addr));
-            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6;
-            std::copy(device_data.ipv6_address->begin(), device_data.ipv6_address->end(), std::next(management_tlv.value.begin(), 2));
-            management_tlv.value.at(2 + sizeof(in6_addr)) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            auto iter = management_tlv.value.begin();
+            *iter++ = std::byte(1 + sizeof(in6_addr));
+            *iter++ = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6;
+            iter = std::ranges::copy(device_data.ipv6_address.value(), iter).out;
+            *iter++ = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
             uint32_t if_index = htonl(device_data.if_index);
-            std::memcpy(std::next(management_tlv.value.begin(), 2 + sizeof(in6_addr) + 1).base(), &if_index, sizeof(if_index));
-            management_tlv.value.at(2 + sizeof(in6_addr) + 1 + 4) = std::byte{0x00};
+            iter = std::ranges::copy(std::as_bytes(std::span(&if_index, 1)), iter).out;
+            *iter++ = std::byte{0x00};
             tlvs.push_back(management_tlv);
         }
         if (!device_data.ipv4_address.has_value() && !device_data.ipv6_address.has_value() && device_data.mac_address.has_value())
@@ -441,13 +443,14 @@ namespace netlink
             lldp::LLDPDUTypeLengthValue management_tlv;
             management_tlv.type = lldp::MANAGEMENT_ADDRESS;
             management_tlv.value.resize(1 + 1 + ETH_ALEN + 1 + 4 + 1);
-            management_tlv.value.at(0) = std::byte(1 + ETH_ALEN);
-            management_tlv.value.at(1) = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC;
-            std::copy(device_data.mac_address->begin(), device_data.mac_address->end(), std::next(management_tlv.value.begin(), 2));
-            management_tlv.value.at(2 + ETH_ALEN) = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
+            auto iter = management_tlv.value.begin();
+            *iter++ = std::byte(1 + ETH_ALEN);
+            *iter++ = lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC;
+            iter = std::ranges::copy(device_data.mac_address.value(), iter).out;
+            *iter++ = lldp::MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX;
             uint32_t if_index = htonl(device_data.if_index);
-            std::memcpy(std::next(management_tlv.value.begin(), 2 + ETH_ALEN + 1).base(), &if_index, sizeof(if_index));
-            management_tlv.value.at(2 + ETH_ALEN + 1 + 4) = std::byte{0x00};
+            iter = std::ranges::copy(std::as_bytes(std::span(&if_index, 1)), iter).out;
+            *iter++ = std::byte{0x00};
             tlvs.push_back(management_tlv);
         }
         return tlvs;
@@ -497,7 +500,7 @@ namespace netlink
         }
         sockaddr_ll address{};
         address.sll_family = AF_PACKET;
-        std::copy(MULTICAST_ADDRESS.begin(), MULTICAST_ADDRESS.end(), std::begin(address.sll_addr));
+        std::ranges::copy(MULTICAST_ADDRESS, std::begin(address.sll_addr));
         address.sll_halen = MULTICAST_ADDRESS.size();
         address.sll_ifindex = if_index;
         address.sll_protocol = htons(ETH_P_LLDP);

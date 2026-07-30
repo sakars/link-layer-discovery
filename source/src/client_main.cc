@@ -63,7 +63,7 @@ void dumpNeighbourData(client::ClientReceiverSocket &client)
     {
         std::string chassis;
         chassis.resize(value.chassis.size());
-        std::memcpy(chassis.data(), value.chassis.data(), value.chassis.size());
+        std::ranges::copy(value.chassis, std::as_writable_bytes(std::span(chassis)).begin());
         std::cout << chassis << "\t";
         logPortType(value.port);
         std::cout << "\t";
