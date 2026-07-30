@@ -108,6 +108,11 @@ namespace ndisc
 
     void DeviceRepository::Tick(const uint64_t &delta_seconds)
     {
+        if (device_reader_ == nullptr || ip_reader_ == nullptr)
+        {
+            std::cerr << "DeviceRepository called Tick on a moved-out-of value\n";
+            return;
+        }
         device_reader_->Tick(delta_seconds);
         ip_reader_->Tick(delta_seconds);
         if (sync_timeout_ > static_cast<int>(delta_seconds))
@@ -122,13 +127,10 @@ namespace ndisc
         }
     }
 
-    void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView &)
+    void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView & /*unused*/)
     {
-        // if (std::get_if<netlink::LinkView>(&packet) != nullptr || std::get_if<netlink::AddrView>(&packet) != nullptr)
-        // {
         std::cout << "Received monitor packet\n";
         ScheduleExpediteResync();
-        // }
     }
 
     void DeviceRepository::HandleLinkPacket(const netlink::LinkView &link_message)
@@ -193,7 +195,6 @@ namespace ndisc
             {
                 if (attribute.attribute_header.rta_type == IFA_ADDRESS)
                 {
-                    std::cout << "ifa family: " << (uint16_t)address_message.content.address_info.ifa_family << "\n";
                     if (address_message.content.address_info.ifa_family == AF_INET &&
                         attribute.value.size() == sizeof(in_addr))
                     {

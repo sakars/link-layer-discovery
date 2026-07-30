@@ -45,7 +45,7 @@ namespace netlink
             BindReaderSocketCallback();
         }
         IpReader &operator=(const IpReader &) = delete;
-        IpReader &operator=(IpReader &&other)
+        IpReader &operator=(IpReader &&other) noexcept
         {
             reader_socket_ = std::move(other.reader_socket_);
             dump_request_sequence_number_ = other.dump_request_sequence_number_;
@@ -71,7 +71,7 @@ namespace netlink
 
         static std::expected<std::unique_ptr<IpReader>, int> Create(ndisc::EventManager &manager);
 
-        void Tick(const uint64_t&);
+        void Tick(const uint64_t &);
 
         std::expected<void, int> TriggerDump();
 

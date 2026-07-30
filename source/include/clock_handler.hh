@@ -33,7 +33,7 @@ namespace ndisc
 
         int GetSocket() const override;
 
-        static std::unique_ptr<ClockHandler> Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository);
+        static std::expected<std::unique_ptr<ClockHandler>, int> Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository);
     };
 } // namespace ndisc
 #endif // CLOCK_HANDLER_HH

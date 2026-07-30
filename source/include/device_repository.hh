@@ -104,6 +104,7 @@ namespace ndisc
                                                               ip_reader_(std::move(other.ip_reader_)),
                                                               devices_(std::move(other.devices_))
         {
+            other.ClearCallbacks();
             other.sync_timeout_ = -1;
             other.monitor_.reset();
             other.device_reader_.reset();
@@ -112,7 +113,7 @@ namespace ndisc
             BindCallbacks();
         }
         DeviceRepository &operator=(const DeviceRepository &) = delete;
-        DeviceRepository &operator=(DeviceRepository &&other)
+        DeviceRepository &operator=(DeviceRepository &&other) noexcept
         {
             ClearCallbacks();
             other.ClearCallbacks();
@@ -136,7 +137,7 @@ namespace ndisc
 
         static std::expected<std::unique_ptr<DeviceRepository>, int> Create(EventManager &manager);
 
-        void Tick(const uint64_t&);
+        void Tick(const uint64_t &);
 
         void HandleMonitorPackets(const netlink::NetlinkPacketView &packet);
 

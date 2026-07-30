@@ -45,7 +45,23 @@ namespace netlink
             BindReaderSocketCallback();
         }
         DeviceReader &operator=(const DeviceReader &) = delete;
-        DeviceReader &operator=(DeviceReader &&) = delete;
+        DeviceReader &operator=(DeviceReader &&other) noexcept
+        {
+            reader_socket_ = std::move(other.reader_socket_);
+            dump_request_sequence_number_ = other.dump_request_sequence_number_;
+            dump_read_timeout_ = other.dump_read_timeout_;
+            device_update_callback_ = std::move(other.device_update_callback_);
+            end_of_device_dump_callback_ = std::move(other.end_of_device_dump_callback_);
+            dump_errored_callback_ = std::move(other.dump_errored_callback_);
+            other.reader_socket_.reset();
+            other.dump_request_sequence_number_.reset();
+            other.dump_read_timeout_ = -1;
+            other.device_update_callback_.reset();
+            other.end_of_device_dump_callback_.reset();
+            other.dump_errored_callback_.reset();
+            BindReaderSocketCallback();
+            return *this;
+        };
         ~DeviceReader()
         {
             if (reader_socket_ != nullptr)

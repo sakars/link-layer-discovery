@@ -47,7 +47,7 @@ namespace ndisc
             }
         }
 
-        static std::expected<LldpRepository, int> Create(std::unique_ptr<DeviceRepository>);
+        static std::expected<LldpRepository, int> Create(ndisc::EventManager &manager);
 
         void MarkChangedLldpStateMachine(unsigned int idx);
 
@@ -59,7 +59,7 @@ namespace ndisc
 
         const std::map<unsigned int, netlink::LldpSender> &GetDeviceInfo() { return current_state_; }
 
-        void Tick(const uint64_t&);
+        void Tick(const uint64_t &);
     };
 } // namespace ndisc
 

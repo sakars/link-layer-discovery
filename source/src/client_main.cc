@@ -2,10 +2,60 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+#include <ranges>
 
 #include "data_transport.hh"
 
-void getData(ndisc::data::DataTransportClient &client)
+static void logPortType(const std::vector<std::byte> &port)
+{
+    if (port.empty())
+    {
+        std::cout << "Missing...";
+        return;
+    }
+    if (port[0] == lldp::PORT_TLV_SUBTYPE_MAC)
+    {
+        std::cout << "MAC";
+    }
+    else if (port[0] == lldp::PORT_TLV_SUBTYPE_LOCAL)
+    {
+        std::cout << "LOCAL";
+    }
+    else if (port[0] == lldp::PORT_TLV_SUBTYPE_NET)
+    {
+        std::cout << "NET(";
+        if (port.size() < 2)
+        {
+            std::cout << "INVALID";
+        }
+        else
+        {
+            if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC)
+            {
+                std::cout << "MAC";
+            }
+            else if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4)
+            {
+                std::cout << "IPv4";
+            }
+            else if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6)
+            {
+                std::cout << "IPv6";
+            }
+            else
+            {
+                std::cout << "UNKNOWN(" << std::to_integer<int>(port[1]) << ")";
+            }
+        }
+        std::cout << ")";
+    }
+    else
+    {
+        std::cout << "UNKNOWN";
+    }
+}
+
+void dumpNeighbourData(ndisc::data::DataTransportClient &client)
 {
     auto map = client.GetData();
     std::cout << "Chassis\tPort type\tPort\tIp\tIpv6\n";
@@ -15,117 +65,25 @@ void getData(ndisc::data::DataTransportClient &client)
         chassis.resize(value.chassis.size());
         std::memcpy(chassis.data(), value.chassis.data(), value.chassis.size());
         std::cout << chassis << "\t";
-        if (!value.port.empty())
-        {
-            std::cout << std::hex << std::setfill('0');
-            if (value.port[0] == std::byte{0x03} && value.port.size() == 1 + ETH_ALEN)
-            {
-                std::cout << "MAC\t"
-                          << std::setw(2) << std::to_integer<int>(value.port[1]) << ":"
-                          << std::setw(2) << std::to_integer<int>(value.port[2]) << ":"
-                          << std::setw(2) << std::to_integer<int>(value.port[3]) << ":"
-                          << std::setw(2) << std::to_integer<int>(value.port[4]) << ":"
-                          << std::setw(2) << std::to_integer<int>(value.port[5]) << ":"
-                          << std::setw(2) << std::to_integer<int>(value.port[6]);
-            }
-            else if (value.port[0] == std::byte{0x04} && value.port.size() > 1)
-            {
-                if (value.port[1] == std::byte{lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC} && value.port.size() == 1 + 1 + ETH_ALEN)
-                {
-                    std::cout << "NET(MAC)\t"
-                              << std::setw(2) << std::to_integer<int>(value.port[2]) << ":"
-                              << std::setw(2) << std::to_integer<int>(value.port[3]) << ":"
-                              << std::setw(2) << std::to_integer<int>(value.port[4]) << ":"
-                              << std::setw(2) << std::to_integer<int>(value.port[5]) << ":"
-                              << std::setw(2) << std::to_integer<int>(value.port[6]) << ":"
-                              << std::setw(2) << std::to_integer<int>(value.port[7]);
-                }
-                else if (value.port[1] == std::byte{lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4} && value.port.size() == 1 + 1 + sizeof(in_addr))
-                {
-                    std::string address;
-                    address.resize(INET_ADDRSTRLEN);
-                    std::cout << "NET(IPv4)\t"
-                              << inet_ntop(AF_INET, std::next(value.port.begin(), 2).base(), address.data(), address.size()) << "\t";
-                }
-                else if (value.port[1] == std::byte{lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6} && value.port.size() == 1 + 1 + sizeof(in6_addr))
-                {
-                    std::string address;
-                    address.resize(INET6_ADDRSTRLEN);
-                    std::cout << "NET(IPv6)\t"
-                              << inet_ntop(AF_INET6, std::next(value.port.begin(), 2).base(), address.data(), address.size()) << "\t";
-                }
-                else
-                {
-                    std::cout << "NET(Unknown(" << std::to_integer<int>(value.port[1]) << "))\t";
-
-                    for (const std::byte &port_byte : value.port)
-                    {
-                        std::cout << std::setw(2) << std::to_integer<int>(port_byte) << " ";
-                    }
-                }
-            }
-            else if (value.port[0] == std::byte{0x07})
-            {
-                std::cout << "Local\t";
-
-                for (size_t i = 1; i < value.port.size(); i++)
-                {
-                    std::cout << std::to_integer<char>(value.port[i]) << " ";
-                }
-            }
-            else
-            {
-                std::cout << "Unknown(" << std::to_integer<int>(value.port[0]) << ")\t";
-
-                for (const std::byte &port_byte : value.port)
-                {
-                    std::cout << std::setw(2) << std::to_integer<int>(port_byte) << " ";
-                }
-            }
-            std::cout << std::dec << std::setfill(' ') << "\t";
-        }
-        else
-        {
-            std::cout << "None\tNone\t";
-        }
-        if (value.ipv4_address.has_value())
-        {
-            std::string address;
-            address.resize(INET_ADDRSTRLEN);
-            std::cout << inet_ntop(AF_INET, value.ipv6_address->data(), address.data(), address.size()) << "\t";
-        }
-        else
-        {
-            std::cout << "None\t";
-        }
-        std::cout << std::hex << std::setfill('0');
-        if (value.ipv6_address.has_value())
-        {
-            std::string address;
-            address.resize(INET6_ADDRSTRLEN);
-            std::cout << inet_ntop(AF_INET6, value.ipv6_address->data(), address.data(), address.size()) << "\t";
-        }
-        else
-        {
-            std::cout << "None";
-        }
-        std::cout << std::dec << std::setfill(' ');
-
+        logPortType(value.port);
+        std::cout << "\t";
+        lldp::logPort(value.port);
+        std::cout << "\t";
+        lldp::logIpv4(value.ipv4_address);
+        std::cout << "\t";
+        lldp::logIpv6(value.ipv6_address);
         std::cout << "\n";
     }
     std::cout << "\n";
 }
 
-int main(int argc, char **argv)
+constexpr int DEFAULT_CONTINUOUS_MODE_TIMER = 5;
+
+int main(int argc, const char *argv[])
 {
-    std::vector<std::string_view> args;
-    args.resize(argc);
-    for (int i = 0; i < argc; i++)
-    {
-        args[i] = argv[i];
-    }
+    std::vector<std::string_view> args{argv, argv + argc};
     bool run_continuous = false;
-    int continuous_timeout = 5;
+    int continuous_timeout = DEFAULT_CONTINUOUS_MODE_TIMER;
     for (std::vector<std::string_view>::iterator arg = args.begin(); arg != args.end(); arg++)
     {
         if (*arg == "-c")
@@ -152,12 +110,12 @@ int main(int argc, char **argv)
     {
         while (true)
         {
-            getData(*client);
+            dumpNeighbourData(*client);
             sleep(continuous_timeout);
         }
     }
     else
     {
-        getData(*client);
+        dumpNeighbourData(*client);
     }
 }

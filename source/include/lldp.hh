@@ -1,8 +1,19 @@
 #ifndef LLDP_HH
 #define LLDP_HH
 
+#include <arpa/inet.h>
+#include <array>
 #include <cstddef>
+#include <iomanip>
+#include <iostream>
+#include <linux/if_ether.h>
+#include <netinet/in.h>
+#include <optional>
+#include <span>
 #include <stdint.h>
+#include <string>
+#include <sys/socket.h>
+#include <vector>
 
 namespace lldp
 {
@@ -32,6 +43,95 @@ namespace lldp
     constexpr std::byte MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC = std::byte{6};
 
     constexpr std::byte MANAGEMENT_TLV_IF_SUBTYPE_IFINDEX = std::byte{2};
+
+    constexpr std::byte PORT_TLV_SUBTYPE_MAC = std::byte{0x03};
+    constexpr std::byte PORT_TLV_SUBTYPE_NET = std::byte{0x04};
+    constexpr std::byte PORT_TLV_SUBTYPE_LOCAL = std::byte{0x07};
+
+    inline void logMac(std::span<const std::byte, ETH_ALEN> mac)
+    {
+        std::ios_base::fmtflags flags(std::cout.flags());
+        std::cout << std::hex << std::setfill('0');
+        std::cout << std::setw(2) << std::to_integer<int>(mac[0]);
+        for (int i = 1; i < ETH_ALEN; i++)
+        {
+
+            std::cout << ":" << std::setw(2) << std::to_integer<int>(mac[i]);
+        }
+        std::cout.flags(flags);
+    }
+
+    inline void logIpv4(const std::optional<std::array<std::byte, sizeof(in_addr)>> &ipv4)
+    {
+        if (ipv4.has_value())
+        {
+            std::string address;
+            address.resize(INET_ADDRSTRLEN);
+            std::cout << inet_ntop(AF_INET, ipv4->data(), address.data(), address.size());
+        }
+        else
+        {
+            std::cout << "None";
+        }
+    }
+
+    inline void logIpv6(const std::optional<std::array<std::byte, sizeof(in6_addr)>> &ipv6)
+    {
+        if (ipv6.has_value())
+        {
+            std::string address;
+            address.resize(INET6_ADDRSTRLEN);
+            std::cout << inet_ntop(AF_INET6, ipv6->data(), address.data(), address.size());
+        }
+        else
+        {
+            std::cout << "None";
+        }
+    }
+
+    static inline void logPort(const std::vector<std::byte> &port)
+    {
+        if (port.empty())
+        {
+            std::cout << "Missing";
+            return;
+        }
+        if (port[0] == lldp::PORT_TLV_SUBTYPE_MAC && port.size() == 1 + ETH_ALEN)
+        {
+            lldp::logMac(std::span<const std::byte, ETH_ALEN>{port.begin() + 1, ETH_ALEN});
+        }
+        else if (port[0] == lldp::PORT_TLV_SUBTYPE_LOCAL)
+        {
+            std::string_view local_view = std::string_view{reinterpret_cast<const char *>((port.begin() + 1).base()), port.size() - 1};
+            std::cout << local_view;
+        }
+        else if (port[0] == lldp::PORT_TLV_SUBTYPE_NET && port.size() > 1)
+        {
+            if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_MAC && port.size() == 1 + 1 + ETH_ALEN)
+            {
+                lldp::logMac(std::span<const std::byte, ETH_ALEN>{std::next(port.begin(), 2), ETH_ALEN});
+            }
+            else if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4 && port.size() == 1 + 1 + sizeof(in_addr))
+            {
+                std::string address;
+                address.resize(INET_ADDRSTRLEN);
+                std::cout << inet_ntop(AF_INET, std::next(port.begin(), 2).base(), address.data(), address.size());
+            }
+            else if (port[1] == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV6 && port.size() == 1 + 1 + sizeof(in6_addr))
+            {
+                std::string address;
+                address.resize(INET6_ADDRSTRLEN);
+                std::cout << inet_ntop(AF_INET6, std::next(port.begin(), 2).base(), address.data(), address.size());
+            }
+            else
+            {
+                for (const std::byte &port_byte : port)
+                {
+                    std::cout << std::setw(2) << std::to_integer<int>(port_byte) << " ";
+                }
+            }
+        }
+    }
 } // namespace lldp
 
 #endif // LLDP_HH

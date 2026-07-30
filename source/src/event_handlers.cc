@@ -15,6 +15,37 @@ static_assert(LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 27), "epoll_create1 miss
 
 namespace ndisc
 {
+    EventManager::EventManager(EventManager &&other) noexcept : registered_events_(std::move(other.registered_events_)),
+                                                                event_id_counter_(other.event_id_counter_),
+                                                                epfd_(std::move(other.epfd_))
+    {
+        other.event_id_counter_ = 1;
+        for (const auto &[handle, event_handler] : registered_events_)
+        {
+            if (std::shared_ptr<EventHandler> handler = event_handler.lock())
+            {
+                handler->event_manager_ = this;
+                handler->handle_ = handle;
+            }
+        }
+    }
+
+    EventManager &EventManager::operator=(EventManager &&other) noexcept
+    {
+        registered_events_ = std::move(other.registered_events_);
+        event_id_counter_ = other.event_id_counter_;
+        epfd_ = std::move(other.epfd_);
+        other.event_id_counter_ = 1;
+        for (const auto &[handle, event_handler] : registered_events_)
+        {
+            if (std::shared_ptr<EventHandler> handler = event_handler.lock())
+            {
+                handler->event_manager_ = this;
+                handler->handle_ = handle;
+            }
+        }
+        return *this;
+    }
 
     std::expected<EventManager, int> EventManager::Create()
     {
@@ -29,6 +60,18 @@ namespace ndisc
 
     std::expected<size_t, int> EventManager::Add(const std::shared_ptr<EventHandler> &handler)
     {
+        if (handler->event_manager_ != nullptr && handler->handle_ != 0)
+        {
+            std::expected<void, int> remove_result = handler->event_manager_->Remove(handler->handle_);
+            if (!remove_result.has_value())
+            {
+                std::cerr << "Failed to remove event handler from old event manager, errno: " << remove_result.error() << "\n";
+            }
+        }
+        while (registered_events_.contains(event_id_counter_))
+        {
+            event_id_counter_++;
+        }
         epoll_event event{};
         event.data.u64 = event_id_counter_;
         event.events = handler->GetEvents();
@@ -38,6 +81,8 @@ namespace ndisc
             return std::unexpected(errno);
         }
         this->registered_events_[event_id_counter_] = handler;
+        handler->event_manager_ = this;
+        handler->handle_ = event_id_counter_;
         return event_id_counter_++;
     }
 
@@ -54,12 +99,23 @@ namespace ndisc
             {
                 return std::unexpected(errno);
             }
+            event_handler->event_manager_ = nullptr;
+            event_handler->handle_ = 0;
         }
         registered_events_.erase(handler_id);
         return {};
     }
 
-    void EventManager::Wait()
+    std::expected<void, int> EventManager::Remove(const std::shared_ptr<EventHandler> &handler)
+    {
+        if (handler->event_manager_ != this)
+        {
+            return std::unexpected(ENOENT);
+        }
+        return Remove(handler->handle_);
+    }
+
+    void EventManager::ProcessEvents()
     {
         std::vector<size_t> expired_handlers{};
         for (const auto &[handler_id, event_handler] : registered_events_)

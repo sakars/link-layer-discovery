@@ -4,14 +4,20 @@
 
 namespace ndisc
 {
-    std::expected<LldpRepository, int> LldpRepository::Create(std::unique_ptr<DeviceRepository> device_repository)
+    std::expected<LldpRepository, int> LldpRepository::Create(ndisc::EventManager &manager)
     {
+        std::expected<std::unique_ptr<ndisc::DeviceRepository>, int> device_repository = ndisc::DeviceRepository::Create(manager);
+        if (!device_repository.has_value())
+        {
+            return std::unexpected(device_repository.error());
+        }
+
         OwnedFileDescriptor eth_broadcast_fd{socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))};
         if (!eth_broadcast_fd.IsValid())
         {
             return std::unexpected(errno);
         }
-        return LldpRepository(std::move(eth_broadcast_fd), std::move(device_repository));
+        return LldpRepository(std::move(eth_broadcast_fd), std::move(*device_repository));
     }
 
     void LldpRepository::MarkChangedLldpStateMachine(unsigned int idx)

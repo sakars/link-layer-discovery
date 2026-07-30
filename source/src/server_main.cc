@@ -83,126 +83,107 @@ public:
     }
 };
 
+template <typename T, typename S>
+inline T unwrapOrLog(std::expected<T, int> value, const S &message)
+{
+    if (!value.has_value())
+    {
+        std::cerr << message << "\terrno: " << value.error() << "\n"; // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+        std::cerr.flush();
+        exit(-1);
+    }
+    return std::move(value.value());
+}
+
+template <typename S>
+inline void unwrapOrLog(std::expected<void, int> value, const S &message)
+{
+    if (!value.has_value())
+    {
+        std::cerr << message << "\terrno: " << value.error() << "\n"; // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+        std::cerr.flush();
+        exit(-1);
+    }
+}
+
+std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
+    ndisc::EventManager &manager,
+    ndisc::NeighbourList &neighbour_list,
+    ndisc::LldpRepository &lldp,
+    bool &interrupt_flag)
+{
+    std::shared_ptr<ndisc::EthernetLldpMonitor> monitor =
+        unwrapOrLog(
+            ndisc::EthernetLldpMonitor::Create(std::bind_front(ndisc::lldpFrameParser, std::ref(neighbour_list))),
+            "Failed to create ethernet lldp monitor");
+
+    std::shared_ptr<ndisc::data::DataTransportRepository> dtr =
+        unwrapOrLog(
+            ndisc::data::DataTransportRepository::Create(manager),
+            "Failed to create DataTransportRepository");
+
+    std::shared_ptr<ndisc::data::DataTransportListenSocket> dtls =
+        unwrapOrLog(
+            ndisc::data::DataTransportListenSocket::Create(neighbour_list, *dtr),
+            "Failed to create DataTransportListenSocket");
+
+    std::shared_ptr<ndisc::ClockHandler> clock =
+        unwrapOrLog(
+            ndisc::ClockHandler::Create(neighbour_list, lldp),
+            "Failed to create ClockHandler");
+
+    std::shared_ptr<InterruptHandler> interrupt_handler =
+        unwrapOrLog(
+            InterruptHandler::Create(&interrupt_flag),
+            "Failed to create InterruptHandler");
+
+    std::vector<std::shared_ptr<ndisc::EventHandler>> handlers{
+        clock,
+        monitor,
+        dtr,
+        dtls,
+        interrupt_handler,
+    };
+    for (const std::shared_ptr<ndisc::EventHandler> &handler : handlers)
+    {
+        unwrapOrLog(
+            manager.Add(handler),
+            "Failed to add event handler to event manager");
+    }
+
+    return handlers;
+}
+
 int main()
 {
-    std::expected<ndisc::EventManager, int> manager_create_result = ndisc::EventManager::Create();
-
-    if (!manager_create_result.has_value())
-    {
-        std::cerr << "Failed to initialize Event manager. Errno: " << manager_create_result.error() << "\n";
-        return -1;
-    }
-    ndisc::EventManager manager = std::move(manager_create_result.value());
-    std::cout << "Event manager initialized" << "\n";
-    std::expected<std::unique_ptr<ndisc::DeviceRepository>, int> repository_result = ndisc::DeviceRepository::Create(manager);
-    std::cout << "Device repository initialized" << "\n";
-    if (!repository_result.has_value())
-    {
-        std::cerr << "Failed to create device repository with errno " << repository_result.error();
-    }
-    std::unique_ptr<ndisc::DeviceRepository> repository = std::move(repository_result.value());
-    std::cout << "Device repository initialized" << "\n";
+    ndisc::EventManager manager =
+        unwrapOrLog(
+            ndisc::EventManager::Create(),
+            "Failed to initialize EventManager");
 
     ndisc::NeighbourList neighbour_list;
 
-    std::shared_ptr<ndisc::EthernetLldpMonitor> monitor = ndisc::EthernetLldpMonitor::Create(std::bind_front(ndisc::lldpFrameParser, std::ref(neighbour_list)));
-    if (monitor == nullptr)
-    {
-        std::cerr << "Monitor is null\n";
-        return -1;
-    }
-    std::expected<uint64_t, int> monitor_add_handle = manager.Add(monitor);
-    if (!monitor_add_handle.has_value())
-    {
-        std::cerr << "Failed to add Ethernet monitor, errno: " << monitor_add_handle.error() << "\n";
-        return -1;
-    }
-
-    std::cout << "Ethernet LLDP monitor initialized" << "\n";
-
-    std::expected<std::unique_ptr<ndisc::data::DataTransportRepository>, int> dtr_result = ndisc::data::DataTransportRepository::Create(manager);
-    if (!dtr_result.has_value())
-    {
-        std::cerr << "Failed to create DataTransportRepository, errno: " << dtr_result.error() << "\n";
-        return -1;
-    }
-    if (dtr_result.value() == nullptr)
-    {
-        std::cerr << "DTR for some reason nullptr\n";
-        return -1;
-    }
-    std::shared_ptr<ndisc::data::DataTransportRepository> dtr = std::move(dtr_result.value());
-
-    std::cout << "Data Transport Repository initialized" << "\n";
-
-    std::expected<std::unique_ptr<ndisc::data::DataTransportListenSocket>, int> dtls_result = ndisc::data::DataTransportListenSocket::Create(*repository, neighbour_list, *dtr);
-    if (!dtls_result.has_value())
-    {
-        std::cerr << "Failed to create DataTransportListenSocket, errno: " << dtls_result.error() << "\n";
-        return -1;
-    }
-    if (dtls_result.value() == nullptr)
-    {
-        std::cerr << "DTLS somehow nullptr\n";
-        return -1;
-    }
-    std::shared_ptr<ndisc::data::DataTransportListenSocket> dtls = std::move(*dtls_result);
-
-    std::cout << "DTLS initialized" << "\n";
-    std::expected<ndisc::LldpRepository, int> lldp_create_result = ndisc::LldpRepository::Create(std::move(repository));
-    if (!lldp_create_result.has_value())
-    {
-        std::cerr << "Failed to create LldpRepository\n";
-    }
-    ndisc::LldpRepository lldp = std::move(*lldp_create_result);
-
-    std::shared_ptr<ndisc::ClockHandler> clock = ndisc::ClockHandler::Create(neighbour_list, lldp);
-    if (clock == nullptr)
-    {
-        std::cerr << "Clock is nullptr\n";
-        return -1;
-    }
-    std::expected<uint64_t, int> clock_add_handle = manager.Add(clock);
-    if (!clock_add_handle.has_value())
-    {
-        std::cerr << "Failed to add Clock monitor, errno: " << clock_add_handle.error() << "\n";
-        return -1;
-    }
-
-    std::cout << "Clock handler initialized" << "\n";
-
-    std::expected<uint64_t, int> dtr_handle = manager.Add(dtr);
-    std::expected<uint64_t, int> dtls_handle = manager.Add(dtls);
-    if (!dtr_handle.has_value())
-    {
-        std::cerr << "Failed to add DTR, errno: " << dtr_handle.error() << "\n";
-        return -1;
-    }
-    if (!dtls_handle.has_value())
-    {
-        std::cerr << "Failed to add DTLS, errno: " << dtls_handle.error() << "\n";
-        return -1;
-    }
-
-    std::cout << "Handlers initialized" << "\n";
+    ndisc::LldpRepository lldp =
+        unwrapOrLog(
+            ndisc::LldpRepository::Create(manager),
+            "Failed to create LldpRepository");
 
     bool interrupt_flag = false;
-    std::expected<std::shared_ptr<InterruptHandler>, int> interrupt_handler = InterruptHandler::Create(&interrupt_flag);
-    if (!interrupt_handler.has_value())
+
+    std::vector<std::shared_ptr<ndisc::EventHandler>> handlers = initializeHandlers(manager, neighbour_list, lldp, interrupt_flag);
+
+    while (!interrupt_flag) // NOLINT(bugprone-infinite-loop)
     {
-        std::cerr << "Interrupt handler create failed, errno: " << interrupt_handler.error() << "\n";
-        return -1;
+        manager.ProcessEvents();
     }
-    std::expected<size_t, int> add_result = manager.Add(*interrupt_handler);
-    if (!add_result.has_value())
+
+    for (const std::shared_ptr<ndisc::EventHandler> &handler : handlers)
     {
-        std::cerr << "Failed to add interrupt handler.\n";
-        return -1;
+        unwrapOrLog(
+            manager.Remove(handler),
+            "Failed to remove event from event manager");
     }
-    while (!interrupt_flag)
-    {
-        manager.Wait();
-    }
+
     std::cout << "\n\nExiting gracefully...\n";
     std::cout.flush();
 }
