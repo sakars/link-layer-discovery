@@ -453,31 +453,41 @@ namespace netlink
         return tlvs;
     }
 
-    void LldpSender::SendLldp(uint16_t ttl)
+    static const std::array<uint8_t, ETH_ALEN> MULTICAST_ADDRESS = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
+    static inline lldp::LLDPEthernetFrame constructFrame(const uint16_t &ttl, const DeviceData &device_data)
     {
-        if (device_data_.if_index > INT_MAX || !device_data_.mac_address.has_value())
+        if (!device_data.mac_address.has_value())
         {
-            return;
+            return {};
         }
-        static const std::array<uint8_t, 6> multicast_address = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
         lldp::LLDPEthernetFrame frame{};
-        std::copy(multicast_address.begin(), multicast_address.end(), std::begin(frame.header.ether_dhost));
-        std::memcpy(std::begin(frame.header.ether_shost), device_data_.mac_address.value().data(), device_data_.mac_address.value().size());
+        std::ranges::copy(MULTICAST_ADDRESS, std::begin(frame.header.ether_dhost));
+        std::ranges::copy(
+            device_data.mac_address.value(),
+            std::as_writable_bytes(std::span(frame.header.ether_shost)).begin());
         frame.header.ether_type = htons(ETH_P_LLDP);
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
         std::string chassis = getMachineId();
-        chassis = '\x07' + chassis;
-        frame.data_unit.chassis_id.value.resize(chassis.size());
-        std::memcpy(frame.data_unit.chassis_id.value.data(), chassis.c_str(), chassis.size());
+        frame.data_unit.chassis_id.value.resize(chassis.size() + 1);
+        frame.data_unit.chassis_id.value[0] = lldp::PORT_TLV_SUBTYPE_LOCAL;
+        std::ranges::copy(
+            std::as_bytes(std::span(chassis)),
+            frame.data_unit.chassis_id.value.begin() + 1);
         frame.data_unit.port_id.type = lldp::PORT_ID;
         frame.data_unit.port_id.value.resize(1 + ETH_ALEN);
         frame.data_unit.port_id.value[0] = lldp::PORT_ID_MAC_TYPE;
-        std::memcpy(std::next(frame.data_unit.port_id.value.data(), 1), device_data_.mac_address.value().data(), ETH_ALEN);
+        std::ranges::copy(device_data.mac_address.value(), frame.data_unit.port_id.value.begin() + 1);
         frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
         frame.data_unit.time_to_live.value.resize(sizeof(ttl));
         const std::array<std::byte, sizeof(ttl)> network_ttl = std::bit_cast<std::array<std::byte, sizeof(ttl)>>(htons(ttl));
-        std::copy(network_ttl.begin(), network_ttl.end(), frame.data_unit.time_to_live.value.begin());
-        frame.data_unit.optional_tlv = createLldpduOptionalTlvs(device_data_);
+        std::ranges::copy(network_ttl, frame.data_unit.time_to_live.value.begin());
+        frame.data_unit.optional_tlv = createLldpduOptionalTlvs(device_data);
+        return frame;
+    }
+
+    static inline ssize_t sendFrame(ndisc::OwnedFileDescriptor &socket_fd, const lldp::LLDPEthernetFrame &frame, int if_index)
+    {
+
         std::vector<std::byte> frame_buffer{frame.GetFrameBufferSize(), std::byte{0x00}};
         std::span<std::byte> frame_buffer_view{frame_buffer};
         std::span<std::byte>::iterator iter = frame.ToFrameBuffer(frame_buffer_view.begin());
@@ -487,11 +497,21 @@ namespace netlink
         }
         sockaddr_ll address{};
         address.sll_family = AF_PACKET;
-        std::copy(multicast_address.begin(), multicast_address.end(), std::begin(address.sll_addr));
-        address.sll_halen = multicast_address.size();
-        address.sll_ifindex = static_cast<int>(device_data_.if_index);
+        std::copy(MULTICAST_ADDRESS.begin(), MULTICAST_ADDRESS.end(), std::begin(address.sll_addr));
+        address.sll_halen = MULTICAST_ADDRESS.size();
+        address.sll_ifindex = if_index;
         address.sll_protocol = htons(ETH_P_LLDP);
-        ssize_t bytes = sendto(**socket_fd_, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+        return sendto(*socket_fd, frame_buffer.data(), frame_buffer.size(), 0, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+    }
+
+    void LldpSender::SendLldp(uint16_t ttl)
+    {
+        if (device_data_.if_index > INT_MAX || !device_data_.mac_address.has_value())
+        {
+            return;
+        }
+        lldp::LLDPEthernetFrame frame = constructFrame(ttl, device_data_);
+        ssize_t bytes = sendFrame(*socket_fd_, frame, static_cast<int>(device_data_.if_index));
         if (bytes < 0)
         {
             int error = errno;
