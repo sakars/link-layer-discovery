@@ -1,7 +1,7 @@
 
 
-libfiles  = clock_handler 
-libfiles += data_transport 
+libfiles = client 
+libfiles += clock_handler 
 libfiles += device_reader
 libfiles += device_repository 
 libfiles += event_handlers 

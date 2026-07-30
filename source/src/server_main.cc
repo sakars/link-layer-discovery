@@ -12,8 +12,8 @@
 #include <thread>
 #include <unistd.h>
 
+#include "client.hh"
 #include "clock_handler.hh"
-#include "data_transport.hh"
 #include "device_repository.hh"
 #include "lldp_monitor.hh"
 #include "lldp_repository.hh"
@@ -117,14 +117,14 @@ std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
             ndisc::EthernetLldpMonitor::Create(std::bind_front(ndisc::lldpFrameParser, std::ref(neighbour_list))),
             "Failed to create ethernet lldp monitor");
 
-    std::shared_ptr<ndisc::data::DataTransportRepository> dtr =
+    std::shared_ptr<client::ClientRepository> dtr =
         unwrapOrLog(
-            ndisc::data::DataTransportRepository::Create(manager),
+            client::ClientRepository::Create(manager),
             "Failed to create DataTransportRepository");
 
-    std::shared_ptr<ndisc::data::DataTransportListenSocket> dtls =
+    std::shared_ptr<client::ClientListenSocket> dtls =
         unwrapOrLog(
-            ndisc::data::DataTransportListenSocket::Create(neighbour_list, *dtr),
+            client::ClientListenSocket::Create(neighbour_list, *dtr),
             "Failed to create DataTransportListenSocket");
 
     std::shared_ptr<ndisc::ClockHandler> clock =

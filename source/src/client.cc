@@ -1,39 +1,42 @@
 
-#include "data_transport.hh"
+#include "client.hh"
 
 #include <cstring>
 #include <fcntl.h>
 #include <sys/file.h>
 
-namespace ndisc::data
+namespace client
 {
+    using ndisc::EventManager;
+    using ndisc::NeighbourList;
+    using ndisc::OwnedFileDescriptor;
 
     const std::string SOCKET_PATH = "/run/ndisc/ndisc.sock";
     const std::string SOCKET_LOCK = "/run/ndisc/ndisc.lock";
 
-    DataTransportPacket::DataTransportPacket()
+    ClientPacket::ClientPacket()
     {
     }
 
-    DataTransportPacket::DataTransportPacket(uint16_t rid, Ipv6Entry &entry) : request_id(rid), type(IPV6_ENTRY)
+    ClientPacket::ClientPacket(uint16_t rid, Ipv6Entry &entry) : request_id(rid), type(IPV6_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(Ipv6Entry));
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
     }
 
-    DataTransportPacket::DataTransportPacket(uint16_t rid, IpEntry &entry) : request_id(rid), type(IP_ENTRY)
+    ClientPacket::ClientPacket(uint16_t rid, IpEntry &entry) : request_id(rid), type(IP_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(IpEntry));
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
     }
 
-    DataTransportPacket::DataTransportPacket(uint16_t rid, NeighbourEntry &entry) : request_id(rid), type(NEIGHBOUR_ENTRY)
+    ClientPacket::ClientPacket(uint16_t rid, NeighbourEntry &entry) : request_id(rid), type(NEIGHBOUR_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(NeighbourEntry));
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
     }
 
-    DataTransportPacket::DataTransportPacket(uint16_t rid, ChassisEntry &entry) : request_id(rid), type(CHASSIS_ENTRY)
+    ClientPacket::ClientPacket(uint16_t rid, ChassisEntry &entry) : request_id(rid), type(CHASSIS_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(ChassisEntry));
         std::copy(entry_data_span.begin(), entry_data_span.end(), data.begin());
@@ -59,9 +62,9 @@ namespace ndisc::data
         sendmsg(*file_descriptor, &header, 0);
     }
 
-    static std::expected<DataTransportPacket, int> readData(int file_descriptor)
+    static std::expected<ClientPacket, int> readData(int file_descriptor)
     {
-        DataTransportPacket data_transport;
+        ClientPacket data_transport;
         iovec iov{
             .iov_base = &data_transport,
             .iov_len = sizeof(data_transport)};
@@ -80,7 +83,7 @@ namespace ndisc::data
         {
             return std::unexpected(errno);
         }
-        if (bytes_sent < static_cast<ssize_t>(sizeof(DataTransportPacket)))
+        if (bytes_sent < static_cast<ssize_t>(sizeof(ClientPacket)))
         {
             return std::unexpected(bytes_sent);
         }
@@ -89,7 +92,7 @@ namespace ndisc::data
 
     static std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, std::monostate>, int> readDataPacket(int file_descriptor)
     {
-        std::expected<DataTransportPacket, int> packet = readData(file_descriptor);
+        std::expected<ClientPacket, int> packet = readData(file_descriptor);
         if (!packet.has_value())
         {
             return std::unexpected(errno);
@@ -160,20 +163,20 @@ namespace ndisc::data
         return listen_socket;
     }
 
-    DataTransportSocket::DataTransportSocket(OwnedFileDescriptor &&socket,
-                                             NeighbourList &neighbour_list,
-                                             int notify_fd) : socket_(std::move(socket)),
-                                                              neighbour_list_(neighbour_list),
-                                                              notify_socket_(notify_fd)
+    ClientSenderSocket::ClientSenderSocket(OwnedFileDescriptor &&socket,
+                                           NeighbourList &neighbour_list,
+                                           int notify_fd) : socket_(std::move(socket)),
+                                                            neighbour_list_(&neighbour_list),
+                                                            notify_socket_(notify_fd)
     {
     }
 
-    bool DataTransportSocket::EofReceived() const
+    bool ClientSenderSocket::EofReceived() const
     {
         return eof_received_;
     }
 
-    void DataTransportSocket::Call()
+    void ClientSenderSocket::Call()
     {
         uint16_t request_id = 0;
         iovec iov{
@@ -213,7 +216,7 @@ namespace ndisc::data
         DumpData(request_id);
     }
 
-    static inline void sendDataTransportPacket(const OwnedFileDescriptor &socket, DataTransportPacket dtp)
+    static inline void sendDataTransportPacket(const OwnedFileDescriptor &socket, ClientPacket dtp)
     {
         iovec iov{
             .iov_base = &dtp,
@@ -248,7 +251,7 @@ namespace ndisc::data
         std::ranges::copy(chassis_id, entry.name.begin());
         entry.name_length = chassis_id.size();
         std::cout << "Chassis length: " << chassis_id.size();
-        sendDataTransportPacket(socket, DataTransportPacket(request_id, entry));
+        sendDataTransportPacket(socket, ClientPacket(request_id, entry));
     }
 
     static inline void sendNeighbourEntry(uint16_t request_id,
@@ -269,14 +272,14 @@ namespace ndisc::data
         }
         entry.port_size = port_id.size();
         std::ranges::copy(port_id, entry.neighbour_port.begin());
-        sendDataTransportPacket(socket, DataTransportPacket(request_id, entry));
+        sendDataTransportPacket(socket, ClientPacket(request_id, entry));
     }
 
-    void DataTransportSocket::DumpData(uint16_t request_id)
+    void ClientSenderSocket::DumpData(uint16_t request_id)
     {
         uint16_t chassis_id_counter = 0;
         uint16_t neighbour_id_counter = 0;
-        for (const auto &[chassis_id, port_map] : neighbour_list_.get().chassis_map)
+        for (const auto &[chassis_id, port_map] : neighbour_list_->chassis_map)
         {
             sendChassisEntryPacket(request_id, socket_, chassis_id_counter, chassis_id);
             for (const auto &[port_id, neighbour] : port_map)
@@ -289,7 +292,7 @@ namespace ndisc::data
                         .address = neighbour.ipv4_address.value(),
                         .padding = {},
                     };
-                    sendDataTransportPacket(socket_, DataTransportPacket(request_id, entry));
+                    sendDataTransportPacket(socket_, ClientPacket(request_id, entry));
                 }
                 if (neighbour.ipv6_address.has_value())
                 {
@@ -298,26 +301,26 @@ namespace ndisc::data
                         .address = neighbour.ipv6_address.value(),
                         .padding = {},
                     };
-                    sendDataTransportPacket(socket_, DataTransportPacket(request_id, entry));
+                    sendDataTransportPacket(socket_, ClientPacket(request_id, entry));
                 }
                 neighbour_id_counter++;
             }
             chassis_id_counter++;
         }
-        sendDataTransportPacket(socket_, DataTransportPacket());
+        sendDataTransportPacket(socket_, ClientPacket());
     }
 
-    int DataTransportSocket::GetSocket() const
+    int ClientSenderSocket::GetSocket() const
     {
         return *socket_;
     }
 
-    uint32_t DataTransportSocket::GetEvents() const
+    uint32_t ClientSenderSocket::GetEvents() const
     {
         return EPOLLIN;
     }
 
-    std::expected<std::unique_ptr<DataTransportRepository>, int> DataTransportRepository::Create(EventManager &event_manager)
+    std::expected<std::unique_ptr<ClientRepository>, int> ClientRepository::Create(EventManager &event_manager)
     {
 
         OwnedFileDescriptor socket = eventfd(0, 0);
@@ -325,10 +328,10 @@ namespace ndisc::data
         {
             return std::unexpected(errno);
         }
-        return std::make_unique<DataTransportRepository>(DataTransportRepository(std::move(socket), event_manager));
+        return std::make_unique<ClientRepository>(ClientRepository(std::move(socket), event_manager));
     }
 
-    void DataTransportRepository::Call()
+    void ClientRepository::Call()
     {
         uint64_t value = 0;
         ssize_t result = read(*socket_, &value, sizeof(value));
@@ -350,18 +353,18 @@ namespace ndisc::data
         }
     }
 
-    DataTransportListenSocket::DataTransportListenSocket(OwnedFileDescriptor &&lock_socket,
-                                                         OwnedFileDescriptor &&listener_socket,
-                                                         NeighbourList &neighbour_list,
-                                                         DataTransportRepository &dtr) : lock_socket_(std::move(lock_socket)),
-                                                                                         listener_socket_(std::move(listener_socket)),
-                                                                                         neighbour_list_(neighbour_list),
-                                                                                         dtr_(dtr)
+    ClientListenSocket::ClientListenSocket(OwnedFileDescriptor &&lock_socket,
+                                           OwnedFileDescriptor &&listener_socket,
+                                           NeighbourList &neighbour_list,
+                                           ClientRepository &dtr) : lock_socket_(std::move(lock_socket)),
+                                                                    listener_socket_(std::move(listener_socket)),
+                                                                    neighbour_list_(&neighbour_list),
+                                                                    dtr_(&dtr)
 
     {
     }
 
-    std::expected<void, int> DataTransportRepository::Add(std::shared_ptr<DataTransportSocket> dts)
+    std::expected<void, int> ClientRepository::Add(std::shared_ptr<ClientSenderSocket> dts)
     {
         std::expected<size_t, int> add_result = event_manager_->Add(dts);
         if (!add_result.has_value())
@@ -372,9 +375,9 @@ namespace ndisc::data
         return {};
     }
 
-    std::expected<std::unique_ptr<DataTransportListenSocket>, int> DataTransportListenSocket::Create(
+    std::expected<std::unique_ptr<ClientListenSocket>, int> ClientListenSocket::Create(
         NeighbourList &neighbour_list,
-        DataTransportRepository &dtr)
+        ClientRepository &dtr)
     {
         ensureRuntimeDirectory();
         OwnedFileDescriptor lock_socket = open( // NOLINT(cppcoreguidelines-pro-type-vararg) No good alternative
@@ -396,38 +399,38 @@ namespace ndisc::data
         {
             return std::unexpected(socket.error());
         }
-        return std::make_unique<DataTransportListenSocket>(DataTransportListenSocket(std::move(lock_socket), std::move(socket.value()), neighbour_list, dtr));
+        return std::make_unique<ClientListenSocket>(ClientListenSocket(std::move(lock_socket), std::move(socket.value()), neighbour_list, dtr));
     }
 
-    void DataTransportListenSocket::Call()
+    void ClientListenSocket::Call()
     {
         std::cout << "New data connection...\n";
         sockaddr_un unix_addr{};
         socklen_t size = sizeof(unix_addr);
-        int accept_socket = accept(*listener_socket_, reinterpret_cast<sockaddr *>(&unix_addr), &size);
-        if (accept_socket < 0)
+        OwnedFileDescriptor accept_socket = accept(*listener_socket_, reinterpret_cast<sockaddr *>(&unix_addr), &size);
+        if (!accept_socket.IsValid())
         {
             std::cerr << "Data transport accept failed with errno: " << errno << "\n";
             return;
         }
-        std::shared_ptr<DataTransportSocket> dts = std::make_shared<DataTransportSocket>(DataTransportSocket(accept_socket, neighbour_list_, dtr_.get().GetSocket()));
-        std::expected<void, int> add_result = dtr_.get().Add(dts);
+        std::shared_ptr<ClientSenderSocket> dts = std::make_shared<ClientSenderSocket>(ClientSenderSocket(std::move(accept_socket), *neighbour_list_, dtr_->GetSocket()));
+        std::expected<void, int> add_result = dtr_->Add(dts);
         if (!add_result.has_value())
         {
             std::cout << "Failed to add data transport socket, errno: " << add_result.error() << "\n";
         }
     }
 
-    int DataTransportRepository::GetSocket() const
+    int ClientRepository::GetSocket() const
     {
         return *socket_;
     }
-    uint32_t DataTransportRepository::GetEvents() const
+    uint32_t ClientRepository::GetEvents() const
     {
         return EPOLLIN;
     }
 
-    std::expected<DataTransportClient, int> DataTransportClient::Create()
+    std::expected<ClientReceiverSocket, int> ClientReceiverSocket::Create()
     {
         OwnedFileDescriptor socket_fd{socket(AF_UNIX, SOCK_SEQPACKET, 0)};
         if (!socket_fd.IsValid())
@@ -445,15 +448,15 @@ namespace ndisc::data
         {
             return std::unexpected(errno);
         }
-        return DataTransportClient(std::move(socket_fd));
+        return ClientReceiverSocket(std::move(socket_fd));
     }
 
     constexpr int MAX_DATA_TRANSPORT_PACKET_AMOUNT = 100000;
 
-    std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> DataTransportClient::GetData()
+    std::map<uint16_t, ClientReceiverSocket::DeviceData> ClientReceiverSocket::GetData()
     {
         std::map<uint16_t, std::vector<std::byte>> chassis_map{};
-        std::map<uint16_t, ndisc::data::DataTransportClient::DeviceData> map{};
+        std::map<uint16_t, ClientReceiverSocket::DeviceData> map{};
         sendRequest(socket_, request_id_);
         for (int i = 0; i < MAX_DATA_TRANSPORT_PACKET_AMOUNT; i++)
         {
@@ -498,5 +501,4 @@ namespace ndisc::data
         request_id_++;
         return map;
     }
-
-} // namespace ndisc::data
+} // namespace client

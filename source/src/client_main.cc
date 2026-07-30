@@ -4,7 +4,7 @@
 #include <iostream>
 #include <ranges>
 
-#include "data_transport.hh"
+#include "client.hh"
 
 static void logPortType(const std::vector<std::byte> &port)
 {
@@ -55,7 +55,7 @@ static void logPortType(const std::vector<std::byte> &port)
     }
 }
 
-void dumpNeighbourData(ndisc::data::DataTransportClient &client)
+void dumpNeighbourData(client::ClientReceiverSocket &client)
 {
     auto map = client.GetData();
     std::cout << "Chassis\tPort type\tPort\tIp\tIpv6\n";
@@ -101,7 +101,7 @@ int main(int argc, const char *argv[])
         }
     }
 
-    std::expected<ndisc::data::DataTransportClient, int> client = ndisc::data::DataTransportClient::Create();
+    std::expected<client::ClientReceiverSocket, int> client = client::ClientReceiverSocket::Create();
     if (!client.has_value())
     {
         std::cerr << "Failed to create DataTransportClient, errno " << client.error();
