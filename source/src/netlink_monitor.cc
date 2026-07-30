@@ -453,7 +453,7 @@ namespace netlink
         return tlvs;
     }
 
-    static const std::array<uint8_t, 6> MULTICAST_ADDRESS = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
+    static const std::array<uint8_t, ETH_ALEN> MULTICAST_ADDRESS = {0x01, 0x80, 0xC2, 0x00, 0x00, 0x00};
     static inline lldp::LLDPEthernetFrame constructFrame(const uint16_t &ttl, const DeviceData &device_data)
     {
         if (!device_data.mac_address.has_value())
