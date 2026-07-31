@@ -265,49 +265,15 @@ namespace netlink
             std::cerr << "NetlinkSocket lacks callback\n";
             return;
         }
-        // empty current span
-        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
+        std::vector<std::byte> data_buffer;
+        LoadBatch(*socket_fd_, data_buffer);
+        std::span<std::byte> remaining_data = std::span<std::byte>(data_buffer.begin(), data_buffer.end());
+        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data);
              packet_from_buffer.has_value();
-             packet_from_buffer = TryLoadFromSpan(remaining_data_))
-        {
-            (*callback_)(packetViewParser(packet_from_buffer.value()));
-        }
-        LoadBatch(*socket_fd_, data_buffer_);
-        remaining_data_ = std::span<std::byte>(data_buffer_.begin(), data_buffer_.end());
-        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data_);
-             packet_from_buffer.has_value();
-             packet_from_buffer = TryLoadFromSpan(remaining_data_))
+             packet_from_buffer = TryLoadFromSpan(remaining_data))
         {
             (*callback_)(packetViewParser(packet_from_buffer.value())); // NOLINT(bugprone-unchecked-optional-access)
         }
-    }
-
-    bool NetlinkSocket::IsReadable() const
-    {
-        size_t buffer_size = remaining_data_.size();
-        const nlmsghdr *header = reinterpret_cast<const nlmsghdr *>(remaining_data_.data());
-        if (NLMSG_OK(header, buffer_size))
-        {
-            return true;
-        }
-        sockaddr_nl source_address{};
-        uint8_t tmp_data = 0;
-        iovec buffer_data{
-            .iov_base = &tmp_data,
-            .iov_len = 1,
-        };
-        msghdr header_buffer{
-            .msg_name = &source_address,
-            .msg_namelen = sizeof(source_address),
-            .msg_iov = &buffer_data,
-            .msg_iovlen = 1,
-            .msg_control = nullptr,
-            .msg_controllen = 0,
-            .msg_flags = 0,
-        };
-
-        const long peek_data_length = recvmsg(*socket_fd_, &header_buffer, MSG_PEEK | MSG_TRUNC);
-        return peek_data_length > 0;
     }
 
     std::expected<int, int> NetlinkSocket::SendGetLinkDumpMessage()
