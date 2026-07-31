@@ -41,7 +41,7 @@ namespace ndisc
     {
         if (current_state_.contains(idx))
         {
-            netlink::LldpSender &lldp_sender = current_state_.at(idx);
+            lldp::LldpSender &lldp_sender = current_state_.at(idx);
             lldp_sender.NewNeighbour();
         }
     }
@@ -52,12 +52,12 @@ namespace ndisc
         {
             if (current_state_.contains(index))
             {
-                netlink::LldpSender &lldp_sender = current_state_.at(index);
+                lldp::LldpSender &lldp_sender = current_state_.at(index);
                 lldp_sender.Update(new_device_state);
             }
             else
             {
-                current_state_.emplace(index, netlink::LldpSender(ethernet_broadcast_socket_, new_device_state));
+                current_state_.emplace(index, lldp::LldpSender(ethernet_broadcast_socket_, new_device_state));
                 CreateLldpStateMachine(index);
             }
         }

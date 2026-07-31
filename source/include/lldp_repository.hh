@@ -5,13 +5,14 @@
 
 #include "netlink_monitor.hh"
 #include "device_repository.hh"
+#include "lldp_sender.hh"
 
 namespace ndisc
 {
     class LldpRepository
     {
         OwnedFileDescriptor ethernet_broadcast_socket_;
-        std::map<unsigned int, netlink::LldpSender> current_state_;
+        std::map<unsigned int, lldp::LldpSender> current_state_;
         std::unique_ptr<DeviceRepository> device_repository_;
 
         LldpRepository(OwnedFileDescriptor &&ethernet_socket,
@@ -57,7 +58,7 @@ namespace ndisc
 
         void UpdateState(const std::map<unsigned int, netlink::DeviceData> &new_state);
 
-        const std::map<unsigned int, netlink::LldpSender> &GetDeviceInfo() { return current_state_; }
+        const std::map<unsigned int, lldp::LldpSender> &GetDeviceInfo() { return current_state_; }
 
         void Tick(const uint64_t &);
     };

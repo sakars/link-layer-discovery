@@ -4,10 +4,13 @@
 #include <arpa/inet.h>
 #include <array>
 #include <cstdint>
+#include <expected>
 #include <functional>
 #include <linux/rtnetlink.h>
+#include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <sys/epoll.h>
 #include <variant>
 #include <vector>
@@ -129,13 +132,6 @@ namespace netlink
         std::expected<int, int> SendGetAddrMessage();
     };
 
-    constexpr uint16_t MAX_TRANSMIT_CREDITS = 5;
-    constexpr uint16_t FAST_TRANSMIT_AMOUNT = 4;
-    constexpr uint16_t TARGET_TTL = 30;
-    constexpr uint16_t PACKET_HOLD_AMOUNT = 5;
-    constexpr uint16_t MESSAGE_TRANSMIT_INTERVAL = TARGET_TTL / PACKET_HOLD_AMOUNT;
-    constexpr uint16_t MESSAGE_FAST_INTERVAL = 1;
-
     struct DeviceData
     {
         std::optional<std::array<std::byte, ETH_ALEN>> mac_address = std::nullopt;
@@ -144,53 +140,6 @@ namespace netlink
         std::optional<std::string> interface_name = std::nullopt;
         bool device_operational = false;
         unsigned int if_index{};
-    };
-
-    class LldpSender
-    {
-        ndisc::OwnedFileDescriptor *socket_fd_;
-        DeviceData device_data_;
-        uint16_t transmit_timer_ = 0;
-        uint16_t transmit_credits_ = 0;
-        uint16_t fast_forward_counter_ = 0;
-        bool trigger_ready_ = false;
-
-    public:
-        LldpSender(ndisc::OwnedFileDescriptor &socket, const DeviceData &device_data) : socket_fd_(&socket), device_data_(device_data)
-        {
-            if (device_data_.device_operational)
-            {
-                EnableSender();
-            }
-            else
-            {
-                DisableSender();
-            }
-        }
-
-        void Update(const DeviceData &);
-
-        void SendLldp(uint16_t ttl);
-
-        void EndTransmission();
-
-        void TryTransmit();
-
-        void TriggerTransmission();
-
-        void TimerExpired();
-
-        void NewNeighbour();
-
-        void LocalChangeDetected();
-
-        void Tick(const uint64_t &);
-
-        const DeviceData &GetDeviceData() const { return device_data_; }
-
-        void DisableSender();
-
-        void EnableSender();
     };
 
 } // namespace netlink
