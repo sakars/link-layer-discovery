@@ -9,6 +9,7 @@ libfiles += ip_reader
 libfiles += lldp_monitor 
 libfiles += lldp_packet 
 libfiles += lldp_repository
+libfiles += lldp_sender
 libfiles += netlink_monitor 
 libfiles += owned_file_descriptor
 
