@@ -82,8 +82,6 @@ namespace netlink
 
     private:
         ndisc::OwnedFileDescriptor socket_fd_;
-        std::vector<std::byte> data_buffer_;
-        std::span<std::byte> remaining_data_;
         int sequence_number_ = 1;
         std::optional<Callback> callback_;
 
@@ -124,8 +122,6 @@ namespace netlink
         {
             return sequence_number_;
         }
-
-        bool IsReadable() const;
 
         std::expected<int, int> SendGetLinkDumpMessage();
 
