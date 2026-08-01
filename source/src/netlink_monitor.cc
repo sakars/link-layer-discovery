@@ -164,7 +164,7 @@ namespace netlink
         return machine_id;
     }
 
-    void NetlinkSocket::LoadBatch(int socket_fd, std::vector<std::byte> &data_buffer)
+    static inline void recvNetlinkMessageBatch(int socket_fd, std::vector<std::byte> &data_buffer)
     {
         if (socket_fd < 0)
         {
@@ -216,7 +216,7 @@ namespace netlink
         data_buffer.resize(data_length);
     }
 
-    std::optional<std::span<std::byte>> NetlinkSocket::TryLoadFromSpan(std::span<std::byte> &remaining_data)
+    static inline std::optional<std::span<std::byte>> extractMessageFromBuffer(std::span<std::byte> &remaining_data)
     {
         size_t buffer_size = remaining_data.size();
         const nlmsghdr *header = reinterpret_cast<const nlmsghdr *>(remaining_data.data());
@@ -266,11 +266,11 @@ namespace netlink
             return;
         }
         std::vector<std::byte> data_buffer;
-        LoadBatch(*socket_fd_, data_buffer);
+        recvNetlinkMessageBatch(*socket_fd_, data_buffer);
         std::span<std::byte> remaining_data = std::span<std::byte>(data_buffer.begin(), data_buffer.end());
-        for (std::optional<std::span<std::byte>> packet_from_buffer = TryLoadFromSpan(remaining_data);
+        for (std::optional<std::span<std::byte>> packet_from_buffer = extractMessageFromBuffer(remaining_data);
              packet_from_buffer.has_value();
-             packet_from_buffer = TryLoadFromSpan(remaining_data))
+             packet_from_buffer = extractMessageFromBuffer(remaining_data))
         {
             (*callback_)(packetViewParser(packet_from_buffer.value())); // NOLINT(bugprone-unchecked-optional-access)
         }
