@@ -89,10 +89,6 @@ namespace netlink
         {
         }
 
-        static void LoadBatch(int socket_fd, std::vector<std::byte> &data_buffer);
-
-        static std::optional<std::span<std::byte>> TryLoadFromSpan(std::span<std::byte> &remaining_data);
-
     public:
         static std::expected<std::unique_ptr<NetlinkSocket>, int> Create(uint32_t multicast_groups);
 
