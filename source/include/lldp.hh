@@ -125,10 +125,13 @@ namespace lldp
             }
             else
             {
+                std::ios_base::fmtflags flags(std::cout.flags());
+                std::cout << std::hex << std::setfill('0');
                 for (const std::byte &port_byte : port)
                 {
                     std::cout << std::setw(2) << std::to_integer<int>(port_byte) << " ";
                 }
+                std::cout.flags(flags);
             }
         }
     }

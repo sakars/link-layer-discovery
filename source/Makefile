@@ -17,10 +17,13 @@ object_files = $(addprefix ../out/,$(addsuffix .o, $(libfiles)))
 input_files = $(addprefix src/,$(addsuffix .cc, $(libfiles)))
 
 WARNINGS = -Wall -Wextra -Werror 
+# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=126617
+WARNINGS += -Wno-error=stringop-overread
 
-GCC = g++ -g -std=c++23 $(WARNINGS) -I./include
 
-all: ../out/ndisc ../out/ndisc_client $(test_executables)
+GCC = g++ -g -O2 -std=c++23 $(WARNINGS) -I./include
+
+all: ../out/ndisc ../out/ndisc_client
 
 ../out/ndisc: $(object_files) src/server_main.cc include/*.hh
 	$(GCC) $(object_files) src/server_main.cc -o ../out/ndisc

@@ -9,13 +9,16 @@ namespace ndisc
         std::expected<std::unique_ptr<ndisc::DeviceRepository>, int> device_repository = ndisc::DeviceRepository::Create(manager);
         if (!device_repository.has_value())
         {
+            std::cerr << "Failed to create device repository\n";
             return std::unexpected(device_repository.error());
         }
 
         OwnedFileDescriptor eth_broadcast_fd{socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))};
         if (!eth_broadcast_fd.IsValid())
         {
-            return std::unexpected(errno);
+            int err = errno;
+            std::cerr << "Failed to create ethernet broadcast socket\n";
+            return std::unexpected(err);
         }
         return LldpRepository(std::move(eth_broadcast_fd), std::move(*device_repository));
     }

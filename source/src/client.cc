@@ -197,15 +197,20 @@ namespace client
         ssize_t received_bytes = recvmsg(*socket_, &msg, MSG_TRUNC);
         if (received_bytes < 0)
         {
-            std::cerr << "Data transport socket failed to receive messages, errno " << errno << "\n";
+            int err = errno;
+            std::cerr << "Data transport socket failed to receive messages, errno " << err << "\n";
             return;
         }
         if (received_bytes == 0)
         {
-            std::cout << "EoF received\n";
             eof_received_ = true;
             uint64_t value = 1;
-            write(notify_socket_, &value, sizeof(value));
+            ssize_t write_result = write(notify_socket_, &value, sizeof(value));
+            if (write_result != sizeof(value))
+            {
+                int err = errno;
+                std::cerr << "Warning: Failed to write to notify socket, errno: " << err << "\n";
+            }
             return;
         }
         if (received_bytes != sizeof(request_id))
@@ -250,7 +255,6 @@ namespace client
         }
         std::ranges::copy(chassis_id, entry.name.begin());
         entry.name_length = chassis_id.size();
-        std::cout << "Chassis length: " << chassis_id.size();
         sendClientPacket(socket, ClientPacket(request_id, entry));
     }
 
@@ -335,12 +339,10 @@ namespace client
     {
         uint64_t value = 0;
         ssize_t result = read(*socket_, &value, sizeof(value));
-        std::cout << "Read Data Transport Request " << result << "\n";
         if (result < 0)
         {
             std::cerr << "Failed to read ClientRepository eventfd\n";
         }
-        std::cout << "Value " << value << "\n";
         for (long i = static_cast<long>(transport_sockets_.size()); i > 0; i--)
         {
             long idx = i - 1;
@@ -417,7 +419,7 @@ namespace client
         std::expected<void, int> add_result = dtr_->Add(dts);
         if (!add_result.has_value())
         {
-            std::cout << "Failed to add data transport socket, errno: " << add_result.error() << "\n";
+            std::cerr << "Failed to add data transport socket, errno: " << add_result.error() << "\n";
         }
     }
 

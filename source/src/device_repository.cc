@@ -86,21 +86,25 @@ namespace ndisc
         std::expected<std::shared_ptr<netlink::NetlinkSocket>, int> monitor_socket = netlink::NetlinkSocket::Create(RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR);
         if (!monitor_socket.has_value() || *monitor_socket == nullptr)
         {
+            std::cerr << "Failed to create monitor socket\n";
             return std::unexpected(monitor_socket.error_or(0));
         }
         std::expected<size_t, int> add_result = manager.Add(*monitor_socket);
         if (!add_result.has_value())
         {
+            std::cerr << "Failed to add monitor socket\n";
             return std::unexpected(add_result.error());
         }
         std::expected<std::unique_ptr<netlink::DeviceReader>, int> device_reader = netlink::DeviceReader::Create(manager);
         if (!device_reader.has_value())
         {
+            std::cerr << "Failed to create device reader\n";
             return std::unexpected(device_reader.error());
         }
         std::expected<std::unique_ptr<netlink::IpReader>, int> ip_reader = netlink::IpReader::Create(manager);
         if (!ip_reader.has_value())
         {
+            std::cerr << "Failed to create ip reader\n";
             return std::unexpected(ip_reader.error());
         }
         return std::make_unique<DeviceRepository>(DeviceRepository(*monitor_socket, std::move(*device_reader), std::move(*ip_reader)));
