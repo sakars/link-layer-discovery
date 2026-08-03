@@ -10,18 +10,18 @@ namespace ndisc
         std::span<const std::byte, sizeof(in_addr)>,
         std::span<const std::byte, sizeof(in6_addr)>,
         std::span<const std::byte, ETH_ALEN>>>
-    managementTlvGetManagementString(const std::vector<std::byte> &management_tlv_value)
+    managementTlvGetManagementString(const std::span<const std::byte> &management_tlv_value)
     {
         if (management_tlv_value.empty())
         {
             return std::nullopt;
         }
-        uint8_t length = std::to_integer<uint8_t>(management_tlv_value.at(0));
+        uint8_t length = std::to_integer<uint8_t>(management_tlv_value[0]);
         if (length == 0 || management_tlv_value.size() < 1U + length)
         {
             return std::nullopt;
         }
-        std::byte string_subtype = management_tlv_value.at(1);
+        std::byte string_subtype = management_tlv_value[1];
         if (string_subtype == lldp::MANAGEMENT_TLV_ADDRESS_SUBTYPE_IPV4)
         {
             if (length != 1 + sizeof(in_addr))
@@ -78,8 +78,8 @@ namespace ndisc
         }
 
         return NeighbourEntry{
-            .chassis_id = lldpdu.chassis_id.value,
-            .port_id = lldpdu.port_id.value,
+            .chassis_id = std::vector(lldpdu.chassis_id.value.begin(), lldpdu.chassis_id.value.end()),
+            .port_id = std::vector(lldpdu.port_id.value.begin(), lldpdu.port_id.value.end()),
             .time_to_live = ntohs(std::bit_cast<uint16_t>(time_to_live_data)),
             .ipv4_address = ipv4_address,
             .ipv6_address = ipv6_address,
@@ -158,7 +158,11 @@ namespace ndisc
         message_header.msg_flags = 0;
 
         ssize_t peek_packet_length = recvmsg(*socket_fd_, &message_header, MSG_PEEK | MSG_TRUNC);
-
+        if (peek_packet_length == -1)
+        {
+            std::cerr << "Failed to read LLDP frame, peek failed\n";
+            return;
+        }
         if (peek_packet_length > static_cast<ssize_t>(message_buffer_.size()))
         {
             message_buffer_.resize(peek_packet_length > MAX_FRAME_BUFFER_SIZE ? MAX_FRAME_BUFFER_SIZE : peek_packet_length);
@@ -169,7 +173,7 @@ namespace ndisc
 
         ssize_t received_length = recvmsg(*socket_fd_, &message_header, 0);
 
-        if (received_length == peek_packet_length)
+        if (received_length == peek_packet_length && received_length != -1)
         {
             callback_(link_layer_address, std::span<const std::byte>(message_buffer_.begin(), received_length));
         }

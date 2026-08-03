@@ -44,8 +44,7 @@ namespace lldp
         LLDPDUTypeLengthValue tlv_structure{};
 
         tlv_structure.type = type;
-        tlv_structure.value = std::vector<std::byte>(tlv_bytes.begin() + sizeof(tlv_header), tlv_bytes.begin() + sizeof(tlv_header) + length);
-
+        tlv_structure.value = tlv_bytes.subspan(sizeof(tlv_header), length);
         tlv_bytes = tlv_bytes.subspan(length + sizeof(tlv_header));
 
         return tlv_structure;
