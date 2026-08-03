@@ -7,6 +7,7 @@
 
 namespace client
 {
+    using ndisc::DeletingOwnedFileDescriptor;
     using ndisc::EventManager;
     using ndisc::NeighbourList;
     using ndisc::OwnedFileDescriptor;
@@ -133,15 +134,14 @@ namespace client
         unlink(SOCKET_PATH.c_str());
     }
 
-    static std::expected<OwnedFileDescriptor, int> createDataSocket()
+    static std::expected<DeletingOwnedFileDescriptor, int> createDataSocket()
     {
         prepareDirectory();
-        int listen_raw_socket = socket(AF_UNIX, SOCK_SEQPACKET, 0);
-        if (listen_raw_socket < 0)
+        OwnedFileDescriptor listen_socket = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+        if (!listen_socket.IsValid())
         {
             return std::unexpected(errno);
         }
-        OwnedFileDescriptor listen_socket{listen_raw_socket};
 
         sockaddr_un unix_address{
             .sun_family = AF_UNIX,
@@ -153,14 +153,14 @@ namespace client
         {
             return std::unexpected(errno);
         }
-
-        int listen_result = listen(*listen_socket, 1);
+        DeletingOwnedFileDescriptor deleting_fd = DeletingOwnedFileDescriptor(std::move(listen_socket), SOCKET_PATH);
+        int listen_result = listen(*deleting_fd, 1);
         if (listen_result != 0)
         {
             return std::unexpected(errno);
         }
 
-        return listen_socket;
+        return deleting_fd;
     }
 
     ClientSenderSocket::ClientSenderSocket(OwnedFileDescriptor &&socket,
@@ -354,8 +354,8 @@ namespace client
         }
     }
 
-    ClientListenSocket::ClientListenSocket(OwnedFileDescriptor &&lock_socket,
-                                           OwnedFileDescriptor &&listener_socket,
+    ClientListenSocket::ClientListenSocket(DeletingOwnedFileDescriptor &&lock_socket,
+                                           DeletingOwnedFileDescriptor &&listener_socket,
                                            NeighbourList &neighbour_list,
                                            ClientRepository &dtr) : lock_socket_(std::move(lock_socket)),
                                                                     listener_socket_(std::move(listener_socket)),
@@ -381,10 +381,11 @@ namespace client
         ClientRepository &dtr)
     {
         ensureRuntimeDirectory();
-        OwnedFileDescriptor lock_socket = open( // NOLINT(cppcoreguidelines-pro-type-vararg) No good alternative
-            SOCKET_LOCK.c_str(),
-            O_RDWR | O_CREAT,
-            static_cast<mode_t>(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH));
+        DeletingOwnedFileDescriptor lock_socket = DeletingOwnedFileDescriptor(open( // NOLINT(cppcoreguidelines-pro-type-vararg) No good alternative
+                                                                                  SOCKET_LOCK.c_str(),
+                                                                                  O_RDWR | O_CREAT,
+                                                                                  static_cast<mode_t>(S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)),
+                                                                              SOCKET_LOCK);
         if (!lock_socket.IsValid())
         {
             std::cerr << "Failed to obtain lockfile\n";
@@ -395,7 +396,7 @@ namespace client
             std::cerr << "Failed to obtain file lock\n";
             return std::unexpected(errno);
         }
-        std::expected<OwnedFileDescriptor, int> socket = createDataSocket();
+        std::expected<DeletingOwnedFileDescriptor, int> socket = createDataSocket();
         if (!socket.has_value())
         {
             return std::unexpected(socket.error());
