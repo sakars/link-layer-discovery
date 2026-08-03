@@ -11,8 +11,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-#include "event_handlers.hh"
 #include "device_repository.hh"
+#include "event_handlers.hh"
 #include "lldp_monitor.hh"
 #include "owned_file_descriptor.hh"
 
@@ -129,13 +129,13 @@ namespace client
 
     class ClientListenSocket : public ndisc::EventHandler
     {
-        ndisc::OwnedFileDescriptor lock_socket_;
-        ndisc::OwnedFileDescriptor listener_socket_;
+        ndisc::DeletingOwnedFileDescriptor lock_socket_;
+        ndisc::DeletingOwnedFileDescriptor listener_socket_;
         ndisc::NeighbourList *neighbour_list_;
         ClientRepository *dtr_;
 
-        ClientListenSocket(ndisc::OwnedFileDescriptor &&lock_socket,
-                           ndisc::OwnedFileDescriptor &&listener_socket,
+        ClientListenSocket(ndisc::DeletingOwnedFileDescriptor &&lock_socket,
+                           ndisc::DeletingOwnedFileDescriptor &&listener_socket,
                            ndisc::NeighbourList &neighbour_list,
                            ClientRepository &dtr);
 
