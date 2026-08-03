@@ -5,3 +5,6 @@ out
 notes.md
 task.md
 test_executables/*
+
+gmon.out
+callgrind.out.*
