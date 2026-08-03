@@ -91,14 +91,17 @@ namespace ndisc
         }
         neighbour_list_->Tick(times_triggered);
         lldp_repository_->Tick(times_triggered);
-        if (dump_timer_ > times_triggered)
+        if (dumping_enabled_)
         {
-            dump_timer_ -= times_triggered;
-        }
-        else
-        {
-            dump_timer_ = DUMP_INFO_TIMEOUT;
-            DumpInfo();
+            if (dump_timer_ > times_triggered)
+            {
+                dump_timer_ -= times_triggered;
+            }
+            else
+            {
+                dump_timer_ = DUMP_INFO_TIMEOUT;
+                DumpInfo();
+            }
         }
     }
 
@@ -112,7 +115,7 @@ namespace ndisc
         return *socket_fd_;
     }
 
-    std::expected<std::unique_ptr<ClockHandler>, int> ClockHandler::Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository)
+    std::expected<std::unique_ptr<ClockHandler>, int> ClockHandler::Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository, bool verbose)
     {
         int socket_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
         if (socket_fd == -1)
@@ -128,6 +131,6 @@ namespace ndisc
         {
             return std::unexpected(errno);
         }
-        return std::make_unique<ClockHandler>(ClockHandler(socket_fd, &neighbour_list, &lldp_repository));
+        return std::make_unique<ClockHandler>(ClockHandler(socket_fd, &neighbour_list, &lldp_repository, verbose));
     }
 } // namespace ndisc

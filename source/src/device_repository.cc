@@ -81,7 +81,7 @@ namespace ndisc
         ScheduleExpediteResync();
     }
 
-    std::expected<std::unique_ptr<DeviceRepository>, int> DeviceRepository::Create(EventManager &manager)
+    std::expected<std::unique_ptr<DeviceRepository>, int> DeviceRepository::Create(EventManager &manager, bool verbose)
     {
         std::expected<std::shared_ptr<netlink::NetlinkSocket>, int> monitor_socket = netlink::NetlinkSocket::Create(RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV6_IFADDR);
         if (!monitor_socket.has_value() || *monitor_socket == nullptr)
@@ -107,7 +107,7 @@ namespace ndisc
             std::cerr << "Failed to create ip reader\n";
             return std::unexpected(ip_reader.error());
         }
-        return std::make_unique<DeviceRepository>(DeviceRepository(*monitor_socket, std::move(*device_reader), std::move(*ip_reader)));
+        return std::make_unique<DeviceRepository>(DeviceRepository(*monitor_socket, std::move(*device_reader), std::move(*ip_reader), verbose));
     }
 
     void DeviceRepository::Tick(const uint64_t &delta_seconds)
@@ -133,7 +133,10 @@ namespace ndisc
 
     void DeviceRepository::HandleMonitorPackets(const netlink::NetlinkPacketView & /*unused*/)
     {
-        std::cout << "Received monitor packet\n";
+        if (verbose_)
+        {
+            std::cout << "Received monitor packet\n";
+        }
         ScheduleExpediteResync();
     }
 

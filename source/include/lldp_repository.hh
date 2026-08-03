@@ -48,7 +48,7 @@ namespace ndisc
             }
         }
 
-        static std::expected<LldpRepository, int> Create(ndisc::EventManager &manager);
+        static std::expected<LldpRepository, int> Create(ndisc::EventManager &manager, bool verbose);
 
         void MarkChangedLldpStateMachine(unsigned int idx);
 

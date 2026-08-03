@@ -99,7 +99,7 @@ namespace netlink
             }
             else
             {
-                std::cout << "Address message got skipped as no callback is assigned.\n";
+                std::cerr << "Address message got skipped as no callback is assigned.\n";
             }
         }
         else if (std::get_if<DoneView>(&packet) != nullptr)
