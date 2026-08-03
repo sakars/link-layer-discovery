@@ -152,7 +152,7 @@ namespace netlink
         };
     }
 
-    std::string getMachineId()
+    const std::string &getMachineId()
     {
         static std::string machine_id;
         if (machine_id.empty())

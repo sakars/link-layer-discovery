@@ -22,7 +22,7 @@
 namespace netlink
 {
 
-    std::string getMachineId();
+    const std::string &getMachineId();
 
     struct TLVView
     {

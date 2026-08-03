@@ -116,7 +116,7 @@ namespace lldp
             std::as_writable_bytes(std::span(frame.header.ether_shost)).begin());
         frame.header.ether_type = htons(ETH_P_LLDP);
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
-        std::string chassis = netlink::getMachineId();
+        const std::string &chassis = netlink::getMachineId();
         frame.data_unit.chassis_id.value.resize(chassis.size() + 1);
         frame.data_unit.chassis_id.value[0] = lldp::PORT_TLV_SUBTYPE_LOCAL;
         std::ranges::copy(
