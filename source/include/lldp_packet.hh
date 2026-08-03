@@ -14,7 +14,7 @@ namespace lldp
     struct LLDPDUTypeLengthValue
     {
         lldp::TLV type;
-        std::vector<std::byte> value;
+        std::span<const std::byte> value;
 
         size_t GetFrameBufferSize() const;
         std::span<std::byte>::iterator ToFrameBuffer(std::span<std::byte>::iterator) const;
