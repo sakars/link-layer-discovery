@@ -4,9 +4,9 @@
 
 namespace ndisc
 {
-    std::expected<LldpRepository, int> LldpRepository::Create(ndisc::EventManager &manager)
+    std::expected<LldpRepository, int> LldpRepository::Create(ndisc::EventManager &manager, bool verbose)
     {
-        std::expected<std::unique_ptr<ndisc::DeviceRepository>, int> device_repository = ndisc::DeviceRepository::Create(manager);
+        std::expected<std::unique_ptr<ndisc::DeviceRepository>, int> device_repository = ndisc::DeviceRepository::Create(manager, verbose);
         if (!device_repository.has_value())
         {
             std::cerr << "Failed to create device repository\n";

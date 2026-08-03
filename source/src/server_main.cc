@@ -110,7 +110,8 @@ std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
     ndisc::EventManager &manager,
     ndisc::NeighbourList &neighbour_list,
     ndisc::LldpRepository &lldp,
-    bool &interrupt_flag)
+    bool &interrupt_flag,
+    bool verbose)
 {
     std::shared_ptr<ndisc::EthernetLldpMonitor> monitor =
         unwrapOrLog(
@@ -129,7 +130,7 @@ std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
 
     std::shared_ptr<ndisc::ClockHandler> clock =
         unwrapOrLog(
-            ndisc::ClockHandler::Create(neighbour_list, lldp),
+            ndisc::ClockHandler::Create(neighbour_list, lldp, verbose),
             "Failed to create ClockHandler");
 
     std::shared_ptr<InterruptHandler> interrupt_handler =
@@ -154,8 +155,26 @@ std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
     return handlers;
 }
 
-int main()
+int main(int argc, const char **argv)
 {
+    std::span<const char *> args{argv, static_cast<size_t>(argc)};
+    std::vector<std::string_view> arguments{};
+    arguments.reserve(argc);
+    for (int i = 0; i < argc; i++)
+    {
+        arguments.push_back(std::string_view(args[i]));
+    }
+
+    bool verbose = false;
+
+    for (const auto &arg : arguments)
+    {
+        if (arg == "-v")
+        {
+            verbose = true;
+        }
+    }
+
     ndisc::EventManager manager =
         unwrapOrLog(
             ndisc::EventManager::Create(),
@@ -165,12 +184,12 @@ int main()
 
     ndisc::LldpRepository lldp =
         unwrapOrLog(
-            ndisc::LldpRepository::Create(manager),
+            ndisc::LldpRepository::Create(manager, verbose),
             "Failed to create LldpRepository");
 
     bool interrupt_flag = false;
 
-    std::vector<std::shared_ptr<ndisc::EventHandler>> handlers = initializeHandlers(manager, neighbour_list, lldp, interrupt_flag);
+    std::vector<std::shared_ptr<ndisc::EventHandler>> handlers = initializeHandlers(manager, neighbour_list, lldp, interrupt_flag, verbose);
 
     while (!interrupt_flag) // NOLINT(bugprone-infinite-loop)
     {

@@ -15,14 +15,16 @@ namespace ndisc
         OwnedFileDescriptor socket_fd_;
         NeighbourList *neighbour_list_;
         LldpRepository *lldp_repository_;
+        bool dumping_enabled_;
 
         uint16_t dump_timer_ = 0;
 
         ClockHandler(OwnedFileDescriptor &&socket_fd,
                      NeighbourList *neighbour_list,
-                     LldpRepository *lldp) : socket_fd_(std::move(socket_fd)),
-                                             neighbour_list_(neighbour_list),
-                                             lldp_repository_(lldp) {}
+                     LldpRepository *lldp, bool dumping_enabled) : socket_fd_(std::move(socket_fd)),
+                                                                   neighbour_list_(neighbour_list),
+                                                                   lldp_repository_(lldp),
+                                                                   dumping_enabled_(dumping_enabled) {}
 
     public:
         void DumpInfo();
@@ -33,7 +35,7 @@ namespace ndisc
 
         int GetSocket() const override;
 
-        static std::expected<std::unique_ptr<ClockHandler>, int> Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository);
+        static std::expected<std::unique_ptr<ClockHandler>, int> Create(NeighbourList &neighbour_list, LldpRepository &lldp_repository, bool verbose);
     };
 } // namespace ndisc
 #endif // CLOCK_HANDLER_HH

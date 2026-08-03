@@ -349,7 +349,6 @@ namespace client
 
             if (transport_sockets_[idx]->EofReceived())
             {
-                std::cout << "Eof received on socket, erasing...\n";
                 transport_sockets_.erase(std::next(transport_sockets_.begin(), idx));
             }
         }
@@ -406,7 +405,6 @@ namespace client
 
     void ClientListenSocket::Call()
     {
-        std::cout << "New data connection...\n";
         sockaddr_un unix_addr{};
         socklen_t size = sizeof(unix_addr);
         OwnedFileDescriptor accept_socket = accept(*listener_socket_, reinterpret_cast<sockaddr *>(&unix_addr), &size);

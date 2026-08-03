@@ -82,7 +82,7 @@ namespace netlink
     {
         if (!dump_request_sequence_number_.has_value())
         {
-            std::cout << "Ignoring packet, no message was expected.\n";
+            std::cerr << "Ignoring packet, no message was expected.\n";
             return;
         }
         unsigned int received_sequence_number = std::visit([]<typename T>(NetlinkMessage<T> packet)
@@ -100,7 +100,7 @@ namespace netlink
             }
             else
             {
-                std::cout << "Link message got skipped as no callback is assigned.\n";
+                std::cerr << "Link message got skipped as no callback is assigned.\n";
             }
         }
         else if (std::get_if<DoneView>(&packet) != nullptr)

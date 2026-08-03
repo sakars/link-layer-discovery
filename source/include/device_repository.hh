@@ -27,6 +27,7 @@ namespace ndisc
         std::unique_ptr<netlink::IpReader> ip_reader_;
         std::map<unsigned int, netlink::DeviceData> devices_;
         std::optional<std::function<void(const std::map<unsigned int, netlink::DeviceData> &)>> synchronization_callback_;
+        bool verbose_;
 
         void BindCallbacks()
         {
@@ -89,9 +90,11 @@ namespace ndisc
         DeviceRepository(
             std::shared_ptr<netlink::NetlinkSocket> monitor_socket,
             std::unique_ptr<netlink::DeviceReader> device_reader,
-            std::unique_ptr<netlink::IpReader> ip_reader) : monitor_(std::move(monitor_socket)),
-                                                            device_reader_(std::move(device_reader)),
-                                                            ip_reader_(std::move(ip_reader))
+            std::unique_ptr<netlink::IpReader> ip_reader,
+            bool verbose) : monitor_(std::move(monitor_socket)),
+                            device_reader_(std::move(device_reader)),
+                            ip_reader_(std::move(ip_reader)),
+                            verbose_(verbose)
         {
             BindCallbacks();
         }
@@ -102,7 +105,8 @@ namespace ndisc
                                                               monitor_(std::move(other.monitor_)),
                                                               device_reader_(std::move(other.device_reader_)),
                                                               ip_reader_(std::move(other.ip_reader_)),
-                                                              devices_(std::move(other.devices_))
+                                                              devices_(std::move(other.devices_)),
+                                                              verbose_(other.verbose_)
         {
             other.ClearCallbacks();
             other.sync_timeout_ = -1;
@@ -110,6 +114,7 @@ namespace ndisc
             other.device_reader_.reset();
             other.ip_reader_.reset();
             other.devices_.clear();
+            other.verbose_ = false;
             BindCallbacks();
         }
         DeviceRepository &operator=(const DeviceRepository &) = delete;
@@ -122,11 +127,13 @@ namespace ndisc
             device_reader_ = std::move(other.device_reader_);
             ip_reader_ = std::move(other.ip_reader_);
             devices_ = std::move(other.devices_);
+            verbose_ = other.verbose_;
             other.sync_timeout_ = -1;
             other.monitor_.reset();
             other.device_reader_.reset();
             other.ip_reader_.reset();
             other.devices_.clear();
+            other.verbose_ = false;
             BindCallbacks();
             return *this;
         };
@@ -135,7 +142,7 @@ namespace ndisc
             ClearCallbacks();
         }
 
-        static std::expected<std::unique_ptr<DeviceRepository>, int> Create(EventManager &manager);
+        static std::expected<std::unique_ptr<DeviceRepository>, int> Create(EventManager &manager, bool verbose);
 
         void Tick(const uint64_t &);
 
