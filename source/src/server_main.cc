@@ -109,7 +109,7 @@ inline void unwrapOrLog(std::expected<void, int> value, const S &message)
 std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
     ndisc::EventManager &manager,
     ndisc::NeighbourList &neighbour_list,
-    ndisc::LldpRepository &lldp,
+    ndisc::LldpRepository &lldp_repository,
     bool &interrupt_flag,
     bool verbose)
 {
@@ -125,12 +125,12 @@ std::vector<std::shared_ptr<ndisc::EventHandler>> initializeHandlers(
 
     std::shared_ptr<client::ClientListenSocket> dtls =
         unwrapOrLog(
-            client::ClientListenSocket::Create(neighbour_list, *dtr),
+            client::ClientListenSocket::Create(neighbour_list, lldp_repository, *dtr),
             "Failed to create ClientListenSocket");
 
     std::shared_ptr<ndisc::ClockHandler> clock =
         unwrapOrLog(
-            ndisc::ClockHandler::Create(neighbour_list, lldp, verbose),
+            ndisc::ClockHandler::Create(neighbour_list, lldp_repository, verbose),
             "Failed to create ClockHandler");
 
     std::shared_ptr<InterruptHandler> interrupt_handler =

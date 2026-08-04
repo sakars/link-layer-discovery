@@ -50,7 +50,7 @@ namespace ndisc
         return std::nullopt;
     }
 
-    NeighbourEntry lldpduToNeighbourEntry(const lldp::LLDPDataUnit &lldpdu)
+    NeighbourEntry lldpduToNeighbourEntry(const lldp::LLDPDataUnit &lldpdu, uint16_t if_index)
     {
         std::array<std::byte, 2> time_to_live_data{lldpdu.time_to_live.value[0], lldpdu.time_to_live.value[1]};
 
@@ -80,6 +80,7 @@ namespace ndisc
         return NeighbourEntry{
             .chassis_id = std::vector(lldpdu.chassis_id.value.begin(), lldpdu.chassis_id.value.end()),
             .port_id = std::vector(lldpdu.port_id.value.begin(), lldpdu.port_id.value.end()),
+            .interface_index = if_index,
             .time_to_live = ntohs(std::bit_cast<uint16_t>(time_to_live_data)),
             .ipv4_address = ipv4_address,
             .ipv6_address = ipv6_address,
@@ -111,16 +112,13 @@ namespace ndisc
             std::cerr << "LLDP packet address wrong size" << address.sll_halen << "\n";
             return;
         }
-
-        std::array<char, IF_NAMESIZE> interface_name{};
-        if_indextoname(address.sll_ifindex, interface_name.data());
         const std::optional<lldp::LLDPDataUnit> data_unit = lldp::LLDPDataUnit::FromSpan(frame);
         if (!data_unit.has_value())
         {
             std::cerr << "Failed to parse a data_unit\n";
             return;
         }
-        NeighbourEntry entry = lldpduToNeighbourEntry(*data_unit);
+        NeighbourEntry entry = lldpduToNeighbourEntry(*data_unit, address.sll_ifindex);
         std::string chassis;
         chassis.resize(entry.chassis_id.size());
         std::ranges::copy(entry.chassis_id, std::as_writable_bytes(std::span(chassis)).begin());

@@ -56,6 +56,7 @@ namespace ndisc
     {
         std::vector<std::byte> chassis_id;
         std::vector<std::byte> port_id;
+        uint16_t interface_index = 0;
         uint16_t time_to_live = 0;
         std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address;
         std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address;

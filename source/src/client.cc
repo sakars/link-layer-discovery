@@ -9,6 +9,7 @@ namespace client
 {
     using ndisc::DeletingOwnedFileDescriptor;
     using ndisc::EventManager;
+    using ndisc::LldpRepository;
     using ndisc::NeighbourList;
     using ndisc::OwnedFileDescriptor;
 
@@ -40,6 +41,12 @@ namespace client
     ClientPacket::ClientPacket(uint16_t rid, ChassisEntry &entry) : request_id(rid), type(CHASSIS_ENTRY)
     {
         std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(ChassisEntry));
+        std::ranges::copy(entry_data_span, data.begin());
+    }
+
+    ClientPacket::ClientPacket(uint16_t rid, LocalInterfaceEntry &entry) : request_id(rid), type(LOCAL_INTERFACE_ENTRY)
+    {
+        std::span<std::byte> entry_data_span = std::span<std::byte>(reinterpret_cast<std::byte *>(&entry), sizeof(LocalInterfaceEntry));
         std::ranges::copy(entry_data_span, data.begin());
     }
 
@@ -91,7 +98,7 @@ namespace client
         return data_transport;
     }
 
-    static std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, std::monostate>, int> readDataPacket(int file_descriptor)
+    static std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, LocalInterfaceEntry, std::monostate>, int> readDataPacket(int file_descriptor)
     {
         std::expected<ClientPacket, int> packet = readData(file_descriptor);
         if (!packet.has_value())
@@ -117,6 +124,10 @@ namespace client
         if (packet->type == IPV6_ENTRY)
         {
             return std::bit_cast<Ipv6Entry>(packet->data);
+        }
+        if (packet->type == LOCAL_INTERFACE_ENTRY)
+        {
+            return std::bit_cast<LocalInterfaceEntry>(packet->data);
         }
 
         return std::unexpected(0);
@@ -164,9 +175,11 @@ namespace client
     }
 
     ClientSenderSocket::ClientSenderSocket(OwnedFileDescriptor &&socket,
-                                           NeighbourList &neighbour_list,
+                                           const NeighbourList &neighbour_list,
+                                           const LldpRepository &lldp_repository,
                                            int notify_fd) : socket_(std::move(socket)),
                                                             neighbour_list_(&neighbour_list),
+                                                            lldp_repository_(&lldp_repository),
                                                             notify_socket_(notify_fd)
     {
     }
@@ -279,6 +292,33 @@ namespace client
         sendClientPacket(socket, ClientPacket(request_id, entry));
     }
 
+    static inline void sendLocalInterfaceEntry(uint16_t request_id,
+                                               const OwnedFileDescriptor &socket,
+                                               uint16_t neighbour_id,
+                                               const ndisc::LldpRepository &lldp_repository,
+                                               const ndisc::NeighbourEntry &neighbour)
+    {
+        if (!lldp_repository.GetDeviceInfo().contains(neighbour.interface_index))
+        {
+            std::cerr << "Warning: Lldp Repository doesn't have device info for interface index " << neighbour.interface_index << "\n";
+            return;
+        }
+        const std::optional<std::string> if_name = lldp_repository.GetDeviceInfo().at(neighbour.interface_index).GetDeviceData().interface_name;
+        if (!if_name.has_value())
+        {
+            std::cerr << "Warning: Lldp repository device info doesn't have interface name\n";
+            return;
+        }
+        LocalInterfaceEntry entry{
+            .neighbour_id = neighbour_id,
+            .if_index = neighbour.interface_index,
+            .name = {},
+            .padding = {},
+        };
+        std::ranges::copy(std::as_bytes(std::span(if_name->begin(), if_name->end())), entry.name.begin());
+        sendClientPacket(socket, ClientPacket(request_id, entry));
+    }
+
     void ClientSenderSocket::DumpData(uint16_t request_id)
     {
         uint16_t chassis_id_counter = 0;
@@ -289,6 +329,13 @@ namespace client
             for (const auto &[port_id, neighbour] : port_map)
             {
                 sendNeighbourEntry(request_id, socket_, chassis_id_counter, neighbour_id_counter, port_id);
+                sendLocalInterfaceEntry(
+                    request_id,
+                    socket_,
+                    neighbour_id_counter,
+                    *lldp_repository_,
+                    neighbour);
+
                 if (neighbour.ipv4_address.has_value())
                 {
                     IpEntry entry{
@@ -354,17 +401,6 @@ namespace client
         }
     }
 
-    ClientListenSocket::ClientListenSocket(DeletingOwnedFileDescriptor &&lock_socket,
-                                           DeletingOwnedFileDescriptor &&listener_socket,
-                                           NeighbourList &neighbour_list,
-                                           ClientRepository &dtr) : lock_socket_(std::move(lock_socket)),
-                                                                    listener_socket_(std::move(listener_socket)),
-                                                                    neighbour_list_(&neighbour_list),
-                                                                    dtr_(&dtr)
-
-    {
-    }
-
     std::expected<void, int> ClientRepository::Add(std::shared_ptr<ClientSenderSocket> dts)
     {
         std::expected<size_t, int> add_result = event_manager_->Add(dts);
@@ -377,7 +413,8 @@ namespace client
     }
 
     std::expected<std::unique_ptr<ClientListenSocket>, int> ClientListenSocket::Create(
-        NeighbourList &neighbour_list,
+        const NeighbourList &neighbour_list,
+        const LldpRepository &lldp_repository,
         ClientRepository &dtr)
     {
         ensureRuntimeDirectory();
@@ -401,7 +438,7 @@ namespace client
         {
             return std::unexpected(socket.error());
         }
-        return std::make_unique<ClientListenSocket>(ClientListenSocket(std::move(lock_socket), std::move(socket.value()), neighbour_list, dtr));
+        return std::make_unique<ClientListenSocket>(ClientListenSocket(std::move(lock_socket), std::move(socket.value()), neighbour_list, lldp_repository, dtr));
     }
 
     void ClientListenSocket::Call()
@@ -414,7 +451,7 @@ namespace client
             std::cerr << "Data transport accept failed with errno: " << errno << "\n";
             return;
         }
-        std::shared_ptr<ClientSenderSocket> dts = std::make_shared<ClientSenderSocket>(ClientSenderSocket(std::move(accept_socket), *neighbour_list_, dtr_->GetSocket()));
+        std::shared_ptr<ClientSenderSocket> dts = std::make_shared<ClientSenderSocket>(ClientSenderSocket(std::move(accept_socket), *neighbour_list_, *lldp_repository_, dtr_->GetSocket()));
         std::expected<void, int> add_result = dtr_->Add(dts);
         if (!add_result.has_value())
         {
@@ -454,14 +491,55 @@ namespace client
 
     constexpr int MAX_DATA_TRANSPORT_PACKET_AMOUNT = 100000;
 
-    std::map<uint16_t, ClientReceiverSocket::DeviceData> ClientReceiverSocket::GetData()
+    static inline bool processDataPacket(
+        std::map<uint16_t, std::vector<std::byte>> &chassis_map,
+        std::map<uint16_t, ClientReceiverSocket::NeighbourDeviceData> &neighbour_device_map,
+        const std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, LocalInterfaceEntry, std::monostate> &packet)
+    {
+        if (const ChassisEntry *chassis = std::get_if<ChassisEntry>(&packet))
+        {
+            chassis_map[chassis->chassis_id] = std::vector<std::byte>(chassis->name.begin(), std::next(chassis->name.begin(), chassis->name_length));
+        }
+        else if (const NeighbourEntry *neighbour = std::get_if<NeighbourEntry>(&packet))
+        {
+            std::vector<std::byte> &chassis = chassis_map[neighbour->chassis_id];
+            std::vector<std::byte> port = std::vector<std::byte>(neighbour->neighbour_port.begin(), std::next(neighbour->neighbour_port.begin(), neighbour->port_size));
+            neighbour_device_map[neighbour->neighbour_id] = ClientReceiverSocket::NeighbourDeviceData{
+                .chassis = chassis,
+                .port = port,
+                .local_interface_name = std::nullopt,
+                .ipv4_address = std::nullopt,
+                .ipv6_address = std::nullopt,
+            };
+        }
+        else if (const IpEntry *ip_entry = std::get_if<IpEntry>(&packet))
+        {
+            neighbour_device_map[ip_entry->neighbour_id].ipv4_address = ip_entry->address;
+        }
+        else if (const Ipv6Entry *ipv6_entry = std::get_if<Ipv6Entry>(&packet))
+        {
+            neighbour_device_map[ipv6_entry->neighbour_id].ipv6_address = ipv6_entry->address;
+        }
+        else if (const LocalInterfaceEntry *local_interface_entry = std::get_if<LocalInterfaceEntry>(&packet))
+        {
+            std::optional<std::string> &if_name = neighbour_device_map[local_interface_entry->neighbour_id].local_interface_name;
+            if_name = std::string(reinterpret_cast<const char *>(local_interface_entry->name.data()));
+        }
+        else
+        {
+            return false;
+        }
+        return true;
+    }
+
+    std::map<uint16_t, ClientReceiverSocket::NeighbourDeviceData> ClientReceiverSocket::GetData()
     {
         std::map<uint16_t, std::vector<std::byte>> chassis_map{};
-        std::map<uint16_t, ClientReceiverSocket::DeviceData> map{};
+        std::map<uint16_t, ClientReceiverSocket::NeighbourDeviceData> map{};
         sendRequest(socket_, request_id_);
         for (int i = 0; i < MAX_DATA_TRANSPORT_PACKET_AMOUNT; i++)
         {
-            std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, std::monostate>, int> packet = readDataPacket(*socket_);
+            std::expected<std::variant<ChassisEntry, NeighbourEntry, IpEntry, Ipv6Entry, LocalInterfaceEntry, std::monostate>, int> packet = readDataPacket(*socket_);
             if (!packet.has_value())
             {
                 if (packet.error() == EAGAIN)
@@ -471,30 +549,7 @@ namespace client
                 std::cerr << "Failed to read packet, errno: " << packet.error() << "\n";
                 break;
             }
-            if (ChassisEntry *chassis = std::get_if<ChassisEntry>(&*packet))
-            {
-                chassis_map[chassis->chassis_id] = std::vector<std::byte>(chassis->name.begin(), std::next(chassis->name.begin(), chassis->name_length));
-            }
-            else if (NeighbourEntry *neighbour = std::get_if<NeighbourEntry>(&*packet))
-            {
-                std::vector<std::byte> &chassis = chassis_map[neighbour->chassis_id];
-                std::vector<std::byte> port = std::vector<std::byte>(neighbour->neighbour_port.begin(), std::next(neighbour->neighbour_port.begin(), neighbour->port_size));
-                map[neighbour->neighbour_id] = DeviceData{
-                    .chassis = chassis,
-                    .port = port,
-                    .ipv4_address = std::nullopt,
-                    .ipv6_address = std::nullopt,
-                };
-            }
-            else if (IpEntry *ip_entry = std::get_if<IpEntry>(&*packet))
-            {
-                map[ip_entry->neighbour_id].ipv4_address = ip_entry->address;
-            }
-            else if (Ipv6Entry *ipv6_entry = std::get_if<Ipv6Entry>(&*packet))
-            {
-                map[ipv6_entry->neighbour_id].ipv6_address = ipv6_entry->address;
-            }
-            else
+            if (!processDataPacket(chassis_map, map, *packet))
             {
                 break;
             }
