@@ -82,6 +82,7 @@ namespace client
     {
         uint16_t request_id = 0;
         NeighbourDataType type = END_OF_DATA;
+        uint8_t padding = 0;
         std::array<std::byte, DATA_MAX_SIZE> data{};
 
         ClientPacket();
@@ -95,7 +96,7 @@ namespace client
         ClientPacket(uint16_t rid, ChassisEntry &entry);
 
         ClientPacket(uint16_t rid, LocalInterfaceEntry &entry);
-    };
+    } __attribute__((packed));
     static_assert(std::is_trivially_copyable_v<ClientPacket>);
 
     class ClientSenderSocket : public ndisc::EventHandler
