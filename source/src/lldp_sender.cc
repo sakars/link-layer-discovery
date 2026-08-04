@@ -125,9 +125,13 @@ namespace lldp
         frame.data_unit.chassis_id.type = lldp::CHASSIS_ID;
         frame.data_unit.chassis_id.value = getMachineIdTlvValue();
         frame.data_unit.port_id.type = lldp::PORT_ID;
-        frame.data_unit.port_id.value = std::span<const std::byte>(device_data.mac_address->begin(), device_data.mac_address->end());
+        std::array<std::byte, 1 + ETH_ALEN> mac_address{};
+        mac_address[0] = PORT_TLV_SUBTYPE_MAC;
+        std::ranges::copy(device_data.mac_address.value(), mac_address.begin() + 1);
+        frame.data_unit.port_id.value = std::span<const std::byte>(mac_address.begin(), mac_address.end());
         frame.data_unit.time_to_live.type = lldp::TIME_TO_LIVE;
-        frame.data_unit.time_to_live.value = std::as_bytes(std::span(&ttl, 1));
+        uint16_t ttl_network_bo = htons(ttl);
+        frame.data_unit.time_to_live.value = std::as_bytes(std::span(&ttl_network_bo, 1));
         createLldpduOptionalTlvs(device_data, frame.data_unit.optional_tlv);
     }
 

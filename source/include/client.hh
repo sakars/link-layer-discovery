@@ -14,6 +14,7 @@
 #include "device_repository.hh"
 #include "event_handlers.hh"
 #include "lldp_monitor.hh"
+#include "lldp_repository.hh"
 #include "owned_file_descriptor.hh"
 
 namespace client
@@ -25,6 +26,7 @@ namespace client
         NEIGHBOUR_ENTRY = 2,
         IP_ENTRY = 3,
         IPV6_ENTRY = 4,
+        LOCAL_INTERFACE_ENTRY = 5,
     };
 
     constexpr uint16_t DATA_MAX_SIZE = 512;
@@ -66,6 +68,16 @@ namespace client
     static_assert(std::is_trivially_copyable_v<Ipv6Entry>);
     static_assert(sizeof(Ipv6Entry) == DATA_MAX_SIZE);
 
+    struct LocalInterfaceEntry
+    {
+        uint16_t neighbour_id;
+        unsigned int if_index;
+        std::array<std::byte, IF_NAMESIZE> name;
+        std::array<std::byte, DATA_MAX_SIZE - sizeof(uint16_t) - sizeof(unsigned int) - IF_NAMESIZE> padding;
+    } __attribute__((packed));
+    static_assert(std::is_trivially_copyable_v<LocalInterfaceEntry>);
+    static_assert(sizeof(LocalInterfaceEntry) == DATA_MAX_SIZE);
+
     struct ClientPacket
     {
         uint16_t request_id = 0;
@@ -81,19 +93,23 @@ namespace client
         ClientPacket(uint16_t rid, NeighbourEntry &entry);
 
         ClientPacket(uint16_t rid, ChassisEntry &entry);
+
+        ClientPacket(uint16_t rid, LocalInterfaceEntry &entry);
     };
     static_assert(std::is_trivially_copyable_v<ClientPacket>);
 
     class ClientSenderSocket : public ndisc::EventHandler
     {
         ndisc::OwnedFileDescriptor socket_;
-        ndisc::NeighbourList *neighbour_list_;
+        const ndisc::NeighbourList *neighbour_list_;
+        const ndisc::LldpRepository *lldp_repository_;
         int notify_socket_;
         bool eof_received_ = false;
 
     public:
         ClientSenderSocket(ndisc::OwnedFileDescriptor &&socket,
-                           ndisc::NeighbourList &neighbour_list,
+                           const ndisc::NeighbourList &neighbour_list,
+                           const ndisc::LldpRepository &lldp_repository,
                            int notify_fd);
 
         bool EofReceived() const;
@@ -131,17 +147,27 @@ namespace client
     {
         ndisc::DeletingOwnedFileDescriptor lock_socket_;
         ndisc::DeletingOwnedFileDescriptor listener_socket_;
-        ndisc::NeighbourList *neighbour_list_;
+        const ndisc::NeighbourList *neighbour_list_;
+        const ndisc::LldpRepository *lldp_repository_;
         ClientRepository *dtr_;
 
         ClientListenSocket(ndisc::DeletingOwnedFileDescriptor &&lock_socket,
                            ndisc::DeletingOwnedFileDescriptor &&listener_socket,
-                           ndisc::NeighbourList &neighbour_list,
-                           ClientRepository &dtr);
+                           const ndisc::NeighbourList &neighbour_list,
+                           const ndisc::LldpRepository &lldp_repository,
+                           ClientRepository &dtr) : lock_socket_(std::move(lock_socket)),
+                                                    listener_socket_(std::move(listener_socket)),
+                                                    neighbour_list_(&neighbour_list),
+                                                    lldp_repository_(&lldp_repository),
+                                                    dtr_(&dtr)
+
+        {
+        }
 
     public:
         static std::expected<std::unique_ptr<ClientListenSocket>, int> Create(
-            ndisc::NeighbourList &neighbour_list,
+            const ndisc::NeighbourList &neighbour_list,
+            const ndisc::LldpRepository &lldp_repository,
             ClientRepository &dtr);
 
         void Call() override;
@@ -167,15 +193,16 @@ namespace client
     public:
         static std::expected<ClientReceiverSocket, int> Create();
 
-        struct DeviceData
+        struct NeighbourDeviceData
         {
             std::vector<std::byte> chassis;
             std::vector<std::byte> port;
+            std::optional<std::string> local_interface_name;
             std::optional<std::array<std::byte, sizeof(in_addr)>> ipv4_address;
             std::optional<std::array<std::byte, sizeof(in6_addr)>> ipv6_address;
         };
 
-        std::map<uint16_t, DeviceData> GetData();
+        std::map<uint16_t, NeighbourDeviceData> GetData();
     };
 
 } // namespace client

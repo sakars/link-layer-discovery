@@ -57,14 +57,15 @@ static void logPortType(const std::vector<std::byte> &port)
 
 void dumpNeighbourData(client::ClientReceiverSocket &client)
 {
-    auto map = client.GetData();
-    std::cout << "Chassis\tPort type\tPort\tIp\tIpv6\n";
+    std::map<uint16_t, client::ClientReceiverSocket::NeighbourDeviceData> map = client.GetData();
+    std::cout << "Chassis\tLocal interface\tPort type\tPort\tIp\tIpv6\n";
     for (auto &[key, value] : map)
     {
         std::string chassis;
         chassis.resize(value.chassis.size());
         std::ranges::copy(value.chassis, std::as_writable_bytes(std::span(chassis)).begin());
         std::cout << chassis << "\t";
+        std::cout << value.local_interface_name.value_or("Missing") << "\t";
         logPortType(value.port);
         std::cout << "\t";
         lldp::logPort(value.port);

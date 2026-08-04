@@ -58,7 +58,7 @@ namespace ndisc
 
         void UpdateState(const std::map<unsigned int, netlink::DeviceData> &new_state);
 
-        const std::map<unsigned int, lldp::LldpSender> &GetDeviceInfo() { return current_state_; }
+        const std::map<unsigned int, lldp::LldpSender> &GetDeviceInfo() const { return current_state_; }
 
         void Tick(const uint64_t &);
     };
